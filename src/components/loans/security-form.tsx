@@ -106,7 +106,7 @@ export function SecurityFields({ kind, d, onChange }: { kind: SecurityKind; d: S
           <Field label="Item Description">
             <Input value={d.description} onChange={set("description")} placeholder="e.g. Chain + Ring" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Weight (grams)">
               <Input value={d.weight} onChange={set("weight")} inputMode="decimal" placeholder="38.5" />
             </Field>

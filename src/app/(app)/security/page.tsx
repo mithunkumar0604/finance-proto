@@ -35,7 +35,7 @@ export default function SecurityPage() {
   const customers = new Map(s.customers.map((c) => [c.id, c]));
 
   const all = s.loans
-    .filter((l) => l.security && perm.customerScope(customers.get(l.customerId)!))
+    .filter((l) => l.security && customers.has(l.customerId) && perm.customerScope(customers.get(l.customerId)!))
     .map((l) => ({ loan: l, sec: l.security!, customer: customers.get(l.customerId)! }))
     .sort((a, b) => (a.sec.status === b.sec.status ? b.loan.amount - a.loan.amount : a.sec.status === "held" ? -1 : 1));
 

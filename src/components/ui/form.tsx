@@ -1,7 +1,7 @@
 "use client";
 
 import { clsx } from "clsx";
-import type { ComponentProps, ReactNode } from "react";
+import { useState, type ComponentProps, type ReactNode } from "react";
 
 /** Labelled form row. Use `group` when the content is a set of buttons, so taps on the label don't trigger the first button. */
 export function Field({ label, hint, required, children, className, group }: { label: string; hint?: ReactNode; required?: boolean; children: ReactNode; className?: string; group?: boolean }) {
@@ -157,5 +157,26 @@ export function PhotoPlaceholder({ label = "Add photo", className }: { label?: s
       </svg>
       {label}
     </button>
+  );
+}
+
+/** Decimal number input (e.g. 2.5%). Keeps the typed text so "2." is not swallowed. */
+export function DecimalInput({ value, onChange, suffix, placeholder }: { value: number; onChange: (v: number) => void; suffix?: string; placeholder?: string }) {
+  const [text, setText] = useState(value ? String(value) : "");
+  return (
+    <div className="flex h-13 items-center rounded-2xl border border-line bg-surface px-4 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10">
+      <input
+        inputMode="decimal"
+        value={text}
+        placeholder={placeholder}
+        onChange={(e) => {
+          const t = e.target.value.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+          setText(t);
+          onChange(parseFloat(t) || 0);
+        }}
+        className="num w-full bg-transparent text-lg font-bold outline-none placeholder:text-faint"
+      />
+      {suffix && <span className="text-lg font-semibold text-muted">{suffix}</span>}
+    </div>
   );
 }

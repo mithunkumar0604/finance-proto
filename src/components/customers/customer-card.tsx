@@ -32,6 +32,8 @@ export function CustomerCard({ customer: c, view: v, today }: { customer: Custom
               </Chip>
             ) : v.worst === "closed" ? (
               <Chip>Closed</Chip>
+            ) : v.worst === "new" ? (
+              <Chip tone="indigo">New</Chip>
             ) : null}
           </div>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] text-muted">

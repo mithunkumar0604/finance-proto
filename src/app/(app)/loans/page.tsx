@@ -25,7 +25,7 @@ export default function LoansPage() {
 
   const customers = new Map(s.customers.map((c) => [c.id, c]));
   const all = s.loans
-    .filter((l) => perm.customerScope(customers.get(l.customerId)!))
+    .filter((l) => customers.has(l.customerId) && perm.customerScope(customers.get(l.customerId)!))
     .map((l) => ({ loan: l, customer: customers.get(l.customerId)!, v: loanView(s, l, today) }));
 
   const inTab = (t: Tab, x: (typeof all)[number]) =>

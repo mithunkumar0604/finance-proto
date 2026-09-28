@@ -182,15 +182,15 @@ export function Segmented<T extends string>({
           aria-selected={value === o.value}
           onClick={() => onChange(o.value)}
           className={clsx(
-            "flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl px-2 text-sm font-semibold transition",
+            "flex h-10 min-w-0 flex-1 items-center justify-center gap-1 rounded-xl px-1 text-[13px] font-semibold transition sm:gap-1.5 sm:px-2 sm:text-sm",
             value === o.value ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink-2",
           )}
         >
-          {o.label}
+          <span className="truncate">{o.label}</span>
           {o.count !== undefined && o.count > 0 && (
             <span
               className={clsx(
-                "num grid h-5 min-w-5 place-items-center rounded-full px-1.5 text-[11px]",
+                "num grid h-5 min-w-5 shrink-0 place-items-center rounded-full px-1.5 text-[11px]",
                 value === o.value ? "bg-ink text-white" : "bg-black/[0.07] text-ink-2",
               )}
             >

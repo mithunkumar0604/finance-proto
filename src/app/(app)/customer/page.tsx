@@ -125,7 +125,9 @@ function CustomerProfile() {
                 ))}
                 {active.length === 0 && (
                   <Card>
-                    <EmptyState icon={Receipt} title="No running loans" text="All loans for this customer are closed." />
+                    <EmptyState icon={Receipt} title={v.loans.length ? "No running loans" : "No loans yet"} text={v.loans.length ? "All loans for this customer are closed." : "Give this customer their first loan."}>
+                      {!v.loans.length && perm.createLoan && <LinkButton href={`/loans/new/?customer=${c.id}`}>New Loan</LinkButton>}
+                    </EmptyState>
                   </Card>
                 )}
                 {closed.length > 0 && (

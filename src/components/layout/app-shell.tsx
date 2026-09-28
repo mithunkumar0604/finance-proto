@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <Sidebar />
       <div className="min-h-dvh pb-28 md:pb-10 md:pl-64">
         {role !== "owner" && (
-          <div className="sticky top-0 z-30 flex items-center justify-center gap-2 bg-indigo-700 px-4 py-2 pt-[max(8px,env(safe-area-inset-top))] text-center text-sm font-semibold text-white">
+          <div className="relative z-30 flex items-center justify-center gap-2 bg-indigo-700 px-4 py-2 pt-[max(8px,env(safe-area-inset-top))] text-center text-sm font-semibold text-white">
             <Eye className="size-4" />
             Viewing as {viewer?.name} ({role === "collector" ? "Collector" : "Staff"})
             <button type="button" onClick={() => actions.setViewAs("owner")} className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs hover:bg-white/25">

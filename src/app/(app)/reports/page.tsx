@@ -10,7 +10,7 @@ import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/bits";
 import { Sheet } from "@/components/ui/sheet";
 import { money, moneyShort, todayISO } from "@/lib/format";
-import { permissions, reports, type RegisterRow } from "@/lib/selectors";
+import { permissions, reports } from "@/lib/selectors";
 import { useAppState } from "@/lib/store";
 
 // Chart palette validated with the dataviz validator (CVD ΔE 9.3, contrast >= 3:1 on white).
@@ -23,7 +23,7 @@ export default function ReportsPage() {
   const s = useAppState();
   const today = todayISO();
   const r = reports(s, today);
-  const [drill, setDrill] = useState<{ title: string; rows: RegisterRow[] } | null>(null);
+  const [drillKey, setDrillKey] = useState<string | null>(null);
 
   if (!permissions(s).seeReports)
     return (
@@ -35,6 +35,8 @@ export default function ReportsPage() {
       </>
     );
 
+  const drillBucket = r.aging.find((a) => a.key === drillKey);
+  const drill = drillBucket ? { title: `Overdue ${drillBucket.label}`, rows: drillBucket.rows } : null;
   const receivedPct = r.expected ? r.received / r.expected : 0;
   const maxType = Math.max(1, ...r.byType.map((t) => t.outside));
   const maxAging = Math.max(1, ...r.aging.map((a) => a.amount));
@@ -118,7 +120,7 @@ export default function ReportsPage() {
                 key={a.key}
                 type="button"
                 disabled={!a.rows.length}
-                onClick={() => setDrill({ title: `Overdue ${a.label}`, rows: a.rows })}
+                onClick={() => setDrillKey(a.key)}
                 className="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-line-2/60 disabled:opacity-60"
               >
                 <div className="w-24 shrink-0">
@@ -139,7 +141,7 @@ export default function ReportsPage() {
         </section>
       </div>
 
-      <Sheet open={!!drill} onClose={() => setDrill(null)} title={drill?.title} subtitle={drill ? `${drill.rows.length} payments · ${money(drill.rows.reduce((a, x) => a + x.remaining, 0))}` : undefined}>
+      <Sheet open={!!drill} onClose={() => setDrillKey(null)} title={drill?.title} subtitle={drill ? `${drill.rows.length} payments · ${money(drill.rows.reduce((a, x) => a + x.remaining, 0))}` : undefined}>
         <div className="pb-4">{drill && <DueList rows={drill.rows} />}</div>
       </Sheet>
     </div>

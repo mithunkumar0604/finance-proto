@@ -121,7 +121,10 @@ export function todaySummary(s: AppState, today: ISODate) {
   const pending = list.reduce((a, r) => a + r.remaining, 0);
   const scope = permissions(s).customerScope;
   const idx = indexes(s);
-  const paidToday = s.payments.filter((p) => p.date === today && scope(idx.customer.get(p.customerId)!));
+  const paidToday = s.payments.filter((p) => {
+    const c = idx.customer.get(p.customerId);
+    return p.date === today && !!c && scope(c);
+  });
   const collected = paidToday.reduce((a, p) => a + paymentTotal(p), 0);
   return {
     expected,
@@ -139,7 +142,10 @@ export function moneyOutside(s: AppState) {
   const scope = permissions(s).customerScope;
   const idx = indexes(s);
   return s.loans
-    .filter((l) => l.status === "active" && scope(idx.customer.get(l.customerId)!))
+    .filter((l) => {
+      const c = idx.customer.get(l.customerId);
+      return l.status === "active" && !!c && scope(c);
+    })
     .reduce((a, l) => a + l.principalLeft, 0);
 }
 
@@ -181,8 +187,10 @@ export function customerView(s: AppState, c: Customer, today: ISODate) {
   const nexts = active
     .filter((v) => v.next)
     .sort((a, b) => a.next!.dueDate.localeCompare(b.next!.dueDate));
-  const worst: LoanHealth = active.some((v) => v.health === "overdue")
-    ? "overdue"
+  const worst: LoanHealth | "new" = loans.length === 0
+    ? "new"
+    : active.some((v) => v.health === "overdue")
+      ? "overdue"
     : active.some((v) => v.health === "due")
       ? "due"
       : active.length

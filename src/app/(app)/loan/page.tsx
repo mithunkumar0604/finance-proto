@@ -12,7 +12,7 @@ import { SecurityDetails } from "@/components/security/security-details";
 import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Avatar, Card, Chip, EmptyState, Row, SectionHeader, Skeleton, StatusChip } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
-import { Field, Input, OptionGrid } from "@/components/ui/form";
+import { DecimalInput, Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { dueRemaining } from "@/lib/demo-calculations";
@@ -220,7 +220,7 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           />
         </Field>
         <Field label={interest.style === "percent" ? "Interest Value (%)" : "Interest Amount (₹)"}>
-          <Input inputMode="decimal" value={String(interest.value)} onChange={(e) => setInterest({ ...interest, value: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
+          <DecimalInput key={interest.style} value={interest.value} onChange={(value) => setInterest({ ...interest, value })} suffix={interest.style === "percent" ? "%" : "₹"} />
         </Field>
         <Field label="Interest Calculation" group>
           <OptionGrid

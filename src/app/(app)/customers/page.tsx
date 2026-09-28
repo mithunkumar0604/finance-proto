@@ -29,7 +29,7 @@ export default function CustomersPage() {
     (f === "running" && v.activeCount > 0) ||
     (f === "due" && v.worst === "due") ||
     (f === "overdue" && v.worst === "overdue") ||
-    (f === "closed" && v.activeCount === 0);
+    (f === "closed" && v.worst === "closed");
 
   const nq = q.toLowerCase().replace(/\s/g, "");
   const list = all.filter(
@@ -92,4 +92,4 @@ export default function CustomersPage() {
   );
 }
 
-const rank = (w: string) => ({ overdue: 0, due: 1, active: 2, closed: 3 })[w] ?? 4;
+const rank = (w: string) => ({ overdue: 0, due: 1, new: 2, active: 3, closed: 4 })[w] ?? 5;

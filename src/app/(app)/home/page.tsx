@@ -34,7 +34,10 @@ export default function HomePage() {
   const tomorrow = tomorrowRows(s, today);
   const week = upcomingRows(s, today, 7);
   const toCollect = toCollectRows(s, today);
-  const activeLoans = s.loans.filter((l) => l.status === "active" && perm.customerScope(s.customers.find((c) => c.id === l.customerId)!)).length;
+  const activeLoans = s.loans.filter((l) => {
+    const c = s.customers.find((x) => x.id === l.customerId);
+    return l.status === "active" && !!c && perm.customerScope(c);
+  }).length;
   const outside = moneyOutside(s);
   const progress = sum.expected ? sum.dueReceived / sum.expected : 0;
 

@@ -4,6 +4,7 @@
 // Each exported action maps 1:1 to a future API call, so swapping this file for
 // real fetch() calls should not require changes in the screens.
 
+import { format } from "date-fns";
 import { useSyncExternalStore } from "react";
 import { applyPayment, buildDue, nextDueDate, type PaymentInput, type PaymentResult } from "./demo-calculations";
 import { buildDemoDB, type DemoDB } from "./demo-data";
@@ -111,7 +112,7 @@ function actor(s: AppState) {
 }
 
 function log(s: AppState, text: string, kind: Activity["kind"]): Activity[] {
-  return [{ id: uid("A"), at: new Date().toISOString(), by: actor(s), text, kind }, ...s.activity];
+  return [{ id: uid("A"), at: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"), by: actor(s), text, kind }, ...s.activity];
 }
 
 // ---------------------------------------------------------------------------

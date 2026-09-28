@@ -27,7 +27,7 @@ import { buildSecurity, EMPTY_SECURITY, SecurityFields, type SecurityDraft, type
 import { securityLabel } from "@/components/loans/loan-card";
 import { Avatar, Card, Row, Skeleton } from "@/components/ui/bits";
 import { Button, LinkButton } from "@/components/ui/button";
-import { Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
+import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
 import { demoLoanDefaults, previewFirstCollection } from "@/lib/demo-calculations";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { actions, useAppState } from "@/lib/store";
@@ -60,7 +60,7 @@ function Wizard() {
   const today = todayISO();
 
   const preCustomer = params.get("customer");
-  const [step, setStep] = useState(preCustomer ? 1 : 0);
+  const [step, setStep] = useState(preCustomer && s.customers.some((c) => c.id === preCustomer) ? 1 : 0);
   const [customerId, setCustomerId] = useState<string | null>(preCustomer);
   const [q, setQ] = useState("");
   const [amount, setAmount] = useState<number | "">("");
@@ -76,9 +76,9 @@ function Wizard() {
 
   const customer = s.customers.find((c) => c.id === customerId);
 
-  const pickType = (t: LoanType) => {
+  const pickType = (t: LoanType, forAmount = amount) => {
     setType(t);
-    const d = demoLoanDefaults(t, amount || 0);
+    const d = demoLoanDefaults(t, forAmount || 0);
     setFrequency(d.frequency);
     setInterest(d.interest);
     setPrincipalPerDue(d.principalPerDue || "");
@@ -86,7 +86,13 @@ function Wizard() {
     else if (t === "jewel") setSecKind("jewel");
   };
 
-  const canNext = [!!customer, !!amount && amount > 0, !!type, interest.value > 0 || interest.style === "custom", true, true][step];
+  // Amount changed after a type was picked: refresh that type's demo defaults.
+  const changeAmount = (a: number | "") => {
+    setAmount(a);
+    if (type) pickType(type, a);
+  };
+
+  const canNext = [!!customer, !!customer && !!amount && amount > 0, !!type, interest.value > 0 || (principalPerDue || 0) > 0, true, true][step];
 
   const draft = {
     customerId: customerId!,
@@ -195,11 +201,11 @@ function Wizard() {
             {customer && <CustomerPill name={customer.name} sub={`${phoneFmt(customer.phone)} · ${customer.area}`} onChange={() => setStep(0)} />}
             <h2 className="mb-4 text-2xl font-bold tracking-tight">How much are you giving?</h2>
             <Field label="Amount Given">
-              <MoneyInput size="xl" value={amount} onChange={setAmount} autoFocus />
+              <MoneyInput size="xl" value={amount} onChange={changeAmount} autoFocus />
             </Field>
             <div className="mt-3 flex flex-wrap gap-2">
               {[25000, 50000, 100000, 200000, 500000].map((a) => (
-                <button key={a} type="button" onClick={() => setAmount(a)} className={clsx("num h-10 rounded-full border px-4 text-sm font-semibold", amount === a ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-2")}>
+                <button key={a} type="button" onClick={() => changeAmount(a)} className={clsx("num h-10 rounded-full border px-4 text-sm font-semibold", amount === a ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-2")}>
                   {moneyShort(a)}
                 </button>
               ))}
@@ -239,16 +245,7 @@ function Wizard() {
             </Field>
             <Field label="Interest Value">
               {interest.style === "percent" ? (
-                <div className="flex h-13 items-center rounded-2xl border border-line bg-surface px-4 focus-within:border-brand-500 focus-within:ring-4 focus-within:ring-brand-500/10">
-                  <input
-                    inputMode="decimal"
-                    value={interest.value || ""}
-                    onChange={(e) => setInterest({ ...interest, value: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })}
-                    className="num w-full bg-transparent text-lg font-bold outline-none"
-                    placeholder="3"
-                  />
-                  <span className="text-lg font-semibold text-muted">%</span>
-                </div>
+                <DecimalInput key="pct" value={interest.value} onChange={(value) => setInterest({ ...interest, value })} suffix="%" placeholder="3" />
               ) : (
                 <MoneyInput value={interest.value || ""} onChange={(v) => setInterest({ ...interest, value: v || 0 })} />
               )}
