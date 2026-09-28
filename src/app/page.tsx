@@ -1,69 +1,101 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { Check, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Logo } from "@/components/layout/nav";
+import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/form";
+import { APP } from "@/lib/config";
+import { actions, useMaybeAppState } from "@/lib/store";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const s = useMaybeAppState();
+  const [user, setUser] = useState("98000 12345");
+  const [pin, setPin] = useState("1234");
+  const [show, setShow] = useState(false);
+  const [remember, setRemember] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const loggedIn = s?.session.loggedIn;
+  useEffect(() => {
+    if (loggedIn) router.replace("/home/");
+  }, [loggedIn, router]);
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setTimeout(() => {
+      actions.login();
+      router.replace("/home/");
+    }, 450);
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="flex min-h-dvh flex-col md:flex-row">
+      {/* Brand panel (desktop) / header (mobile) */}
+      <div className="relative overflow-hidden bg-[radial-gradient(120%_90%_at_0%_0%,#0f6f57_0%,#06352c_75%)] px-6 pt-[max(40px,env(safe-area-inset-top))] pb-16 text-white md:flex md:w-[46%] md:flex-col md:justify-between md:p-14">
+        <div className="flex items-center gap-3">
+          <Logo className="bg-white/12 ring-1 ring-white/20" />
+          <div className="leading-tight">
+            <p className="text-lg font-extrabold tracking-tight">{APP.name}</p>
+            <p className="text-xs text-white/65">{APP.subtitle}</p>
+          </div>
+        </div>
+        <div className="mt-10 md:mt-0">
+          <h2 className="max-w-md text-[28px] leading-tight font-bold tracking-tight md:text-4xl">Know who has your money. Every day.</h2>
+          <ul className="mt-6 hidden space-y-3 text-white/80 md:block">
+            {["Today's collections at a glance", "Every customer, loan and payment in one place", "Private and locked to your PIN"].map((t) => (
+              <li key={t} className="flex items-center gap-3">
+                <span className="grid size-6 place-items-center rounded-full bg-white/15">
+                  <Check className="size-3.5" />
+                </span>
+                {t}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="hidden text-sm text-white/50 md:block">© {new Date().getFullYear()} {APP.owner.business}</p>
+        <svg className="pointer-events-none absolute -right-24 -bottom-24 size-80 text-white/[0.04] md:size-[520px]" viewBox="0 0 100 100">
+          <circle cx="50" cy="50" r="48" fill="none" stroke="currentColor" strokeWidth="10" />
+          <circle cx="50" cy="50" r="24" fill="none" stroke="currentColor" strokeWidth="10" />
+        </svg>
+      </div>
+
+      {/* Form */}
+      <div className="relative z-10 -mt-8 flex flex-1 items-start justify-center rounded-t-[32px] bg-canvas px-6 pt-9 pb-10 md:mt-0 md:items-center md:rounded-none">
+        <form onSubmit={submit} className="w-full max-w-sm">
+          <h1 className="text-[28px] font-bold tracking-tight">Welcome Back</h1>
+          <p className="mt-1 text-muted">Sign in to continue to {APP.name}</p>
+
+          <div className="mt-8 space-y-5">
+            <Field label="Mobile / Username">
+              <Input value={user} onChange={(e) => setUser(e.target.value)} inputMode="tel" autoComplete="username" />
+            </Field>
+            <Field label="Password / PIN">
+              <div className="relative">
+                <Input type={show ? "text" : "password"} value={pin} onChange={(e) => setPin(e.target.value)} autoComplete="current-password" className="pr-12" />
+                <button type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide PIN" : "Show PIN"} className="absolute top-1/2 right-1.5 grid size-10 -translate-y-1/2 place-items-center rounded-xl text-muted hover:bg-line-2">
+                  {show ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+                </button>
+              </div>
+            </Field>
+            <label className="flex cursor-pointer items-center gap-3 select-none">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="size-5 accent-brand-700" />
+              <span className="text-[15px] text-ink-2">Remember this device</span>
+            </label>
+          </div>
+
+          <Button type="submit" size="lg" className="mt-8 w-full" disabled={busy}>
+            {busy ? <span className="size-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : "Sign In"}
+          </Button>
+
+          <p className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-muted">
+            <ShieldCheck className="size-4 text-brand-600" /> Demo login — details are pre-filled
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        </form>
+      </div>
     </div>
   );
 }
