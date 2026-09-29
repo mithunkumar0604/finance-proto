@@ -124,6 +124,8 @@ export interface PaymentInput {
   loanId: string;
   dueId?: string;
   date: ISODate;
+  /** Defaults to the payment date (i.e. entered on the day it was paid). */
+  recordedOn?: ISODate;
   interest: number;
   principal: number;
   other: number;
@@ -159,8 +161,15 @@ export function applyPayment(
   const updatedLoan: Loan = { ...loan, principalLeft };
 
   if (due) {
-    due.paid = Math.min(dueTotal(due), due.paid + input.interest + input.principal);
-    due.lastPaidDate = input.date;
+    // DEMO: interest pays the due's interest; principal only counts towards the due's
+    // scheduled principal part. Extra principal reduces the balance without "paying"
+    // the interest that is still owed.
+    const interestPaid = Math.min(due.interestAmount, due.paid);
+    const principalPaid = Math.max(0, due.paid - due.interestAmount);
+    due.paid =
+      Math.min(due.interestAmount, interestPaid + input.interest) +
+      Math.min(due.principalAmount, principalPaid + input.principal);
+    if (input.interest + input.principal > 0) due.lastPaidDate = input.date;
   }
 
   const payment: Payment = {
@@ -168,6 +177,8 @@ export function applyPayment(
     loanId: loan.id,
     customerId: loan.customerId,
     date: input.date,
+    recordedOn: input.recordedOn ?? input.date,
+    principalBefore: loan.principalLeft,
     interest: input.interest,
     principal: input.principal,
     other: input.other,
@@ -179,7 +190,7 @@ export function applyPayment(
   if (principalLeft === 0) {
     updatedLoan.status = "closed";
     updatedLoan.closedDate = input.date;
-    if (updatedLoan.security) updatedLoan.security = { ...updatedLoan.security, status: "released" };
+    // Security stays HELD ("pending release") until the owner hands it back.
     for (const d of dues) if (dueRemaining(d) > 0 && d !== due) d.cancelled = true;
     if (due && dueRemaining(due) > 0) due.paid = dueTotal(due); // settled in full
     return { loan: updatedLoan, dues, payment, closed: true };
@@ -215,13 +226,13 @@ export function demoLoanDefaults(type: LoanType, amount: number): {
 } {
   switch (type) {
     case "weekly":
-      return { frequency: "weekly", interest: { style: "fixed", value: Math.round(amount * 0.02), method: "fixed" }, principalPerDue: Math.round(amount / 10) };
+      return { frequency: "weekly", interest: { style: "fixed", value: Math.round(amount * 0.025), method: "fixed" }, principalPerDue: 0 };
     case "15day":
       return { frequency: "15days", interest: { style: "percent", value: 2, method: "fixed" }, principalPerDue: 0 };
     case "30day":
       return { frequency: "30days", interest: { style: "percent", value: 5, method: "fixed" }, principalPerDue: 0 };
     case "vehicle":
-      return { frequency: "monthly", interest: { style: "percent", value: 2, method: "reducing" }, principalPerDue: Math.round(amount / 20 / 500) * 500 };
+      return { frequency: "monthly", interest: { style: "percent", value: 2, method: "reducing" }, principalPerDue: 0 };
     case "jewel":
       return { frequency: "monthly", interest: { style: "percent", value: 2, method: "reducing" }, principalPerDue: 0 };
     case "custom":

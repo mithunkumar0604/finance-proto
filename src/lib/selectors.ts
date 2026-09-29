@@ -1,9 +1,8 @@
 // Read-only views derived from the store. Screens use these instead of
 // filtering raw arrays themselves.
 
-import { addMonths, format, parseISO, startOfMonth } from "date-fns";
 import { dueRemaining, dueStatus, dueTotal, openDue, paymentTotal } from "./demo-calculations";
-import { daysBetween, shiftISO, toISO } from "./format";
+import { daysBetween, shiftISO } from "./format";
 import type { AppState } from "./store";
 import type { Customer, Due, DueStatus, ISODate, Loan, LoanType, Role } from "./types";
 
@@ -262,57 +261,3 @@ export const TYPE_GROUPS: { key: string; label: string; types: LoanType[] }[] = 
   { key: "vehicle", label: "Vehicle", types: ["vehicle"] },
   { key: "jewel", label: "Jewel", types: ["jewel"] },
 ];
-
-export const AGING = [
-  { key: "1-7", label: "1–7 days", min: 1, max: 7 },
-  { key: "8-30", label: "8–30 days", min: 8, max: 30 },
-  { key: "31-60", label: "31–60 days", min: 31, max: 60 },
-  { key: "60+", label: "60+ days", min: 61, max: Infinity },
-];
-
-export function reports(s: AppState, today: ISODate) {
-  const monthStart = toISO(startOfMonth(parseISO(today)));
-  const inMonth = (d: ISODate) => d >= monthStart && d <= today;
-  const monthPayments = s.payments.filter((p) => inMonth(p.date));
-  const monthDues = s.dues.filter((d) => !d.cancelled && (d.rescheduled?.originalDate ?? d.dueDate) >= monthStart && (d.rescheduled?.originalDate ?? d.dueDate) <= today);
-
-  const expected = monthDues.reduce((a, d) => a + dueTotal(d), 0);
-  const pending = monthDues.reduce((a, d) => a + dueRemaining(d), 0);
-
-  const active = s.loans.filter((l) => l.status === "active");
-  const byType = TYPE_GROUPS.map((g) => {
-    const ls = active.filter((l) => g.types.includes(l.type));
-    return { ...g, count: ls.length, outside: ls.reduce((a, l) => a + l.principalLeft, 0) };
-  });
-
-  const overdue = overdueRows(s, today);
-  const aging = AGING.map((b) => {
-    const r = overdue.filter((x) => x.daysLate >= b.min && x.daysLate <= b.max);
-    return { ...b, rows: r, customers: new Set(r.map((x) => x.customer.id)).size, amount: r.reduce((a, x) => a + x.remaining, 0) };
-  });
-
-  // Last 6 months of money received.
-  const trend = Array.from({ length: 6 }, (_, i) => {
-    const m = addMonths(parseISO(monthStart), i - 5);
-    const key = format(m, "yyyy-MM");
-    const ps = s.payments.filter((p) => p.date.startsWith(key));
-    return { label: format(m, "MMM"), interest: ps.reduce((a, p) => a + p.interest, 0), principal: ps.reduce((a, p) => a + p.principal, 0) };
-  });
-
-  return {
-    moneyOutside: active.reduce((a, l) => a + l.principalLeft, 0),
-    activeLoans: active.length,
-    interestThisMonth: monthPayments.reduce((a, p) => a + p.interest, 0),
-    principalThisMonth: monthPayments.reduce((a, p) => a + p.principal, 0),
-    newMoneyGiven: s.loans.filter((l) => inMonth(l.startDate)).reduce((a, l) => a + l.amount, 0),
-    expected,
-    received: expected - pending,
-    pending,
-    overdueTotal: overdue.reduce((a, r) => a + r.remaining, 0),
-    overdueCustomers: new Set(overdue.map((r) => r.customer.id)).size,
-    byType,
-    aging,
-    trend,
-    monthLabel: format(parseISO(today), "MMMM"),
-  };
-}

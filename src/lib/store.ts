@@ -157,7 +157,8 @@ export const actions = {
     set((s) => {
       const loan = s.loans.find((l) => l.id === input.loanId)!;
       const loanDues = s.dues.filter((d) => d.loanId === loan.id);
-      result = applyPayment(loan, loanDues, input, { paymentId: uid("P"), nextDueId: uid("D") });
+      const recordedOn = input.recordedOn ?? todayISO();
+      result = applyPayment(loan, loanDues, { ...input, recordedOn }, { paymentId: uid("P"), nextDueId: uid("D") });
       const customer = s.customers.find((c) => c.id === loan.customerId);
       const total = input.interest + input.principal + input.other;
       return {
@@ -167,7 +168,7 @@ export const actions = {
         payments: [...s.payments, result.payment],
         activity: log(
           s,
-          `Received ₹${total.toLocaleString("en-IN")} from ${customer?.name} · ${loan.id}${result.closed ? " · Loan closed" : ""}`,
+          `Received ₹${total.toLocaleString("en-IN")} from ${customer?.name} · ${loan.id}${result.closed ? " · Loan closed" : ""}${input.date < recordedOn ? ` · backdated to ${input.date}` : ""}`,
           "payment",
         ),
       };

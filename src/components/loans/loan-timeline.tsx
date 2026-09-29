@@ -50,6 +50,9 @@ export function LoanTimeline({ loan, payments, next }: { loan: Loan; payments: P
             ) : (
               <p className="text-[13px] text-muted">{METHOD_LABEL[p.method]}{p.note ? ` · ${p.note}` : ""}</p>
             )}
+            {p.recordedOn > p.date && (
+              <p className="mt-1 inline-flex rounded-md bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">Backdated · recorded {dShort(p.recordedOn)}</p>
+            )}
           </Item>
         );
       })}

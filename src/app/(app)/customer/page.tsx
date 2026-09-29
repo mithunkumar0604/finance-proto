@@ -154,8 +154,10 @@ function CustomerProfile() {
                         {dLong(p.date)} <span className="font-normal text-muted">· {p.loanId}</span>
                       </p>
                       <p className="num text-[13px] text-muted">
-                        Interest {money(p.interest)} · Principal {money(p.principal)} · {METHOD_LABEL[p.method]}
+                        Interest {money(p.interest)}
+                        {p.principal > 0 && <> · Principal {money(p.principal)}</>} · {METHOD_LABEL[p.method]}
                       </p>
+                      {p.recordedOn > p.date && <p className="text-[12px] font-semibold text-indigo-700">Backdated · recorded {dShort(p.recordedOn)}</p>}
                     </div>
                     <p className="num font-extrabold text-emerald-700">{money(paymentTotal(p))}</p>
                   </div>

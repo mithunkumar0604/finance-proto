@@ -111,7 +111,12 @@ export interface Payment {
   id: string;
   loanId: string;
   customerId: string;
+  /** Payment date: when the customer actually paid. All reports filter on this. */
   date: ISODate;
+  /** Recorded date: when it was entered in the app. Differs for backdated entries. */
+  recordedOn: ISODate;
+  /** Principal left on the loan just before this payment. */
+  principalBefore: number;
   interest: number;
   principal: number;
   other: number;

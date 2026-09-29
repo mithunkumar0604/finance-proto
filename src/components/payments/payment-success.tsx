@@ -1,13 +1,13 @@
 "use client";
 
-import { MessageCircle } from "lucide-react";
+import { History, MessageCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Chip, Row } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { dueRemaining, paymentTotal, type PaymentResult } from "@/lib/demo-calculations";
-import { dShort, money } from "@/lib/format";
+import { dueInterestLeft, dueRemaining, paymentTotal, type PaymentResult } from "@/lib/demo-calculations";
+import { dLong, dShort, money } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 
 export function PaymentSuccess({
@@ -25,9 +25,14 @@ export function PaymentSuccess({
   const s = useAppState();
   const { payment, loan } = result;
   const paidDue = result.dues.find((d) => d.id === payment.dueId);
-  const stillDue = paidDue ? dueRemaining(paidDue) : 0;
+  const stillDue = paidDue && !result.closed ? dueRemaining(paidDue) : 0;
+  const interestStillDue = paidDue && !result.closed ? dueInterestLeft(paidDue) : 0;
   const nextDate = result.nextDue?.dueDate ?? paidDue?.dueDate;
   const liveLoan = s.loans.find((l) => l.id === loan.id) ?? loan;
+  const principalMoved = payment.principal > 0;
+  const backdated = payment.recordedOn > payment.date;
+
+  const title = result.closed ? "Loan Closed" : principalMoved && payment.interest === 0 ? "Principal Recorded" : "Payment Recorded";
 
   return (
     <div className="flex flex-col items-center pt-4 pb-5 text-center md:pt-8">
@@ -36,44 +41,65 @@ export function PaymentSuccess({
           <path d="M5 12.5l4.5 4.5L19 7.5" strokeDasharray="48" className="animate-draw" />
         </svg>
       </span>
-      <h2 className="mt-5 text-2xl font-bold tracking-tight">{result.closed ? "Loan Closed" : "Payment Recorded"}</h2>
+      <h2 className="mt-5 text-2xl font-bold tracking-tight">{title}</h2>
       <p className="mt-1.5 text-muted">
         <span className="num font-bold text-ink">{money(paymentTotal(payment))}</span> received from {customerName}
       </p>
-      {stillDue > 0 && (
-        <Chip tone="amber" dot className="mt-3">
-          PARTIAL · {money(stillDue)} still due
-        </Chip>
-      )}
+      <div className="mt-3 flex flex-wrap justify-center gap-2">
+        {result.closed && <Chip tone="brand" dot>CLOSED · {dShort(loan.closedDate!)}</Chip>}
+        {stillDue > 0 && (
+          <Chip tone="amber" dot>
+            {payment.interest > 0 ? `PARTIAL · ${money(stillDue)} still due` : `Interest ${money(stillDue)} still due`}
+          </Chip>
+        )}
+        {backdated && (
+          <Chip tone="indigo">
+            <History className="size-3.5" /> Paid {dShort(payment.date)} · recorded {dShort(payment.recordedOn)}
+          </Chip>
+        )}
+      </div>
 
       <div className="mt-6 w-full rounded-2xl border border-line px-4 text-left">
         <div className="divide-y divide-line-2">
           <Row label="Interest" value={money(payment.interest)} />
-          <Row label="Principal" value={money(payment.principal)} />
+          {principalMoved && <Row label="Principal" value={money(payment.principal)} />}
           {payment.other > 0 && <Row label="Other / Adjustment" value={money(payment.other)} />}
+          <Row label="Payment Date" value={dLong(payment.date)} />
         </div>
       </div>
 
-      <div className="mt-3 grid w-full grid-cols-2 gap-3 text-left">
-        <div className="rounded-2xl bg-brand-50 p-4">
-          <p className="text-[13px] text-brand-800/70">Updated Principal</p>
-          <p className="num mt-0.5 text-xl font-extrabold text-brand-800">
-            {principalBefore !== loan.principalLeft ? <AnimatedMoney value={liveLoan.principalLeft} /> : money(loan.principalLeft)}
-          </p>
-          {principalBefore !== loan.principalLeft && (
-            <p className="num mt-0.5 text-xs text-brand-800/60 line-through">{money(principalBefore)}</p>
-          )}
+      {principalMoved ? (
+        <div className="mt-3 grid w-full grid-cols-3 gap-px overflow-hidden rounded-2xl border border-line bg-line text-left">
+          <Box label="Before" value={money(principalBefore)} />
+          <Box label="Paid" value={money(payment.principal)} tone="text-brand-700" />
+          <div className="min-w-0 bg-brand-50 p-3">
+            <p className="truncate text-[12px] text-brand-800/70">Remaining</p>
+            <AnimatedMoney value={liveLoan.principalLeft} className="num mt-0.5 block truncate text-base font-extrabold text-brand-800" />
+          </div>
         </div>
-        <div className="rounded-2xl bg-line-2 p-4">
-          <p className="text-[13px] text-muted">{result.closed ? "Status" : stillDue > 0 ? "Remaining Due" : "Next Payment"}</p>
-          <p className="num mt-0.5 text-xl font-extrabold">
-            {result.closed ? "Closed" : stillDue > 0 ? money(stillDue) : nextDate ? dShort(nextDate) : "—"}
-          </p>
-          {!result.closed && stillDue === 0 && result.nextDue && (
-            <p className="num mt-0.5 text-xs text-muted">{money(result.nextDue.interestAmount + result.nextDue.principalAmount)} expected</p>
-          )}
+      ) : (
+        <div className="mt-3 grid w-full grid-cols-2 gap-3 text-left">
+          <div className="rounded-2xl bg-brand-50 p-4">
+            <p className="text-[13px] text-brand-800/70">Principal Left</p>
+            <p className="num mt-0.5 text-xl font-extrabold text-brand-800">{money(loan.principalLeft)}</p>
+            <p className="mt-0.5 text-xs text-brand-800/60">Unchanged</p>
+          </div>
+          <div className="rounded-2xl bg-line-2 p-4">
+            <p className="text-[13px] text-muted">{stillDue > 0 ? "Remaining Due" : "Next Interest"}</p>
+            <p className="num mt-0.5 text-xl font-extrabold">{stillDue > 0 ? money(stillDue) : nextDate ? dShort(nextDate) : "—"}</p>
+            {stillDue === 0 && result.nextDue && (
+              <p className="num mt-0.5 text-xs text-muted">{money(result.nextDue.interestAmount + result.nextDue.principalAmount)} expected</p>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {principalMoved && !result.closed && interestStillDue === 0 && (
+        <p className="mt-3 w-full rounded-xl bg-line-2 px-3 py-2 text-left text-sm text-ink-2">
+          Next interest {nextDate ? `on ${dShort(nextDate)}` : ""}
+          {result.nextDue ? ` · ${money(result.nextDue.interestAmount)} (on the new balance — demo)` : ""}
+        </p>
+      )}
 
       <div className="mt-6 flex w-full flex-col gap-2.5">
         <Button size="lg" className="w-full" onClick={onDone}>
@@ -94,6 +120,15 @@ export function PaymentSuccess({
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Box({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="min-w-0 bg-surface p-3">
+      <p className="truncate text-[12px] text-muted">{label}</p>
+      <p className={`num mt-0.5 truncate text-base font-extrabold ${tone ?? ""}`}>{value}</p>
     </div>
   );
 }

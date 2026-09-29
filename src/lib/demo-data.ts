@@ -63,8 +63,12 @@ interface LoanSpec {
   /** Current due already collected in full today. */
   paidToday?: boolean;
   reschedule?: { toOffset: number; reason: string };
-  /** Loan fully repaid; closed this many days ago. */
+  /** Loan fully settled; closed this many days ago. */
   closedDaysAgo?: number;
+  /** For a closed loan: security already handed back to the customer. */
+  released?: boolean;
+  /** One past collection that was entered in the app late (backdated). */
+  backdated?: { cycle: number; recordedDaysAgo: number };
   security?: Security | null;
   reference?: string;
 }
@@ -147,32 +151,42 @@ const vehicle = (
 });
 
 const STORY_LOANS: LoanSpec[] = [
-  // Ravi — the main demo customer: monthly loan with principal part-payments + a vehicle loan.
+  // Most loans are INTEREST-ONLY: the customer pays interest every period and returns
+  // the principal later. A few show partial principal payments and full settlements.
+
+  // Ravi — main demo customer: monthly interest, with two past partial principal payments.
   { id: "LP-1024", customerId: "C001", type: "monthly", amount: 200000, frequency: "monthly", interest: pct(3), cycles: 8, dueOffset: 0, extraPrincipal: { 3: 50000, 5: 30000 }, reference: "Shop stock" },
-  { id: "LP-1147", customerId: "C001", type: "vehicle", amount: 100000, frequency: "monthly", interest: pct(2), principalPerDue: 5000, cycles: 7, dueOffset: 4, security: vehicle("TN 56 AR 4521", "bike", "Royal Enfield", "Classic 350", "Ravi Kumar", "RC-56-2211") },
-  // Murugan — vehicle-backed, part paid, overdue 3 days.
-  { id: "LP-1088", customerId: "C002", type: "vehicle", amount: 150000, frequency: "monthly", interest: pct(2, "fixed"), principalPerDue: 9000, cycles: 5, dueOffset: -3, partial: { amount: 4000, offset: -1 }, security: vehicle("TN 33 AB 1234", "commercial", "Mahindra", "Bolero Pik-Up", "Murugan S", "RC-33-8812") },
-  { id: "LP-1102", customerId: "C003", type: "weekly", amount: 25000, frequency: "weekly", interest: fixed(500), principalPerDue: 2000, cycles: 6, dueOffset: 0 },
+  { id: "LP-1147", customerId: "C001", type: "vehicle", amount: 100000, frequency: "monthly", interest: pct(2), cycles: 7, dueOffset: 4, security: vehicle("TN 56 AR 4521", "bike", "Royal Enfield", "Classic 350", "Ravi Kumar", "RC-56-2211") },
+  // Murugan — vehicle-backed, interest overdue.
+  { id: "LP-1088", customerId: "C002", type: "vehicle", amount: 150000, frequency: "monthly", interest: pct(3, "fixed"), cycles: 5, dueOffset: -3, security: vehicle("TN 33 AB 1234", "commercial", "Mahindra", "Bolero Pik-Up", "Murugan S", "RC-33-8812") },
+  { id: "LP-1102", customerId: "C003", type: "weekly", amount: 100000, frequency: "weekly", interest: fixed(2500), cycles: 6, dueOffset: 0 },
   { id: "LP-1131", customerId: "C004", type: "30day", amount: 300000, frequency: "30days", interest: pct(6, "fixed"), cycles: 2, dueOffset: -5 },
-  { id: "LP-1066", customerId: "C005", type: "jewel", amount: 75000, frequency: "monthly", interest: pct(2), cycles: 4, dueOffset: 1, security: jewel("Gold Chain + Ring", 38.5, "22K", 285000, "PKT-0412", "Chain 30.2 g, ring 8.3 g") },
-  // Karthik — the live partial-payment demo: ₹10,000 due today.
-  { id: "LP-1152", customerId: "C006", type: "15day", amount: 50000, frequency: "15days", interest: fixed(2000), principalPerDue: 8000, cycles: 1, dueOffset: 0 },
+  // Selvam — jewel loan: half this period's interest paid yesterday (PARTIAL); returned ₹50,000 principal earlier.
+  { id: "LP-1066", customerId: "C005", type: "jewel", amount: 150000, frequency: "monthly", interest: pct(3), cycles: 4, dueOffset: 0, extraPrincipal: { 3: 50000 }, partial: { amount: 1500, offset: -1 }, security: jewel("Gold Chain + Ring", 38.5, "22K", 285000, "PKT-0412", "Chain 30.2 g, ring 8.3 g") },
+  // Karthik — the live partial-payment demo: ₹10,000 interest due today.
+  { id: "LP-1152", customerId: "C006", type: "15day", amount: 500000, frequency: "15days", interest: fixed(10000), cycles: 1, dueOffset: 0 },
   // Prabhu — rescheduled from today.
   { id: "LP-1119", customerId: "C007", type: "monthly", amount: 120000, frequency: "monthly", interest: pct(2.5), cycles: 5, dueOffset: 0, reschedule: { toOffset: 5, reason: "Travelling to Coimbatore, will pay on return" } },
-  { id: "LP-1160", customerId: "C008", type: "weekly", amount: 40000, frequency: "weekly", interest: fixed(800), principalPerDue: 4000, cycles: 3, dueOffset: 0, paidToday: true },
+  { id: "LP-1160", customerId: "C008", type: "weekly", amount: 80000, frequency: "weekly", interest: fixed(2000), cycles: 3, dueOffset: 0, paidToday: true },
+  { id: "LP-1049", customerId: "C008", type: "weekly", amount: 40000, frequency: "weekly", interest: fixed(1000), cycles: 10, dueOffset: 0, closedDaysAgo: 5 },
   { id: "LP-1075", customerId: "C009", type: "monthly", amount: 500000, frequency: "monthly", interest: pct(2), cycles: 10, dueOffset: 0, paidToday: true, reference: "Business expansion" },
   { id: "LP-1170", customerId: "C009", type: "30day", amount: 100000, frequency: "30days", interest: pct(5, "fixed"), cycles: 0, dueOffset: 3 },
-  { id: "LP-1093", customerId: "C010", type: "vehicle", amount: 250000, frequency: "monthly", interest: pct(1.5), principalPerDue: 12500, cycles: 9, dueOffset: -12, security: vehicle("TN 56 C 7788", "commercial", "Tata", "Ace Gold", "Rajesh N", "RC-56-4410") },
-  { id: "LP-1110", customerId: "C011", type: "weekly", amount: 30000, frequency: "weekly", interest: fixed(500), principalPerDue: 2500, cycles: 5, dueOffset: 0, paidToday: true },
-  { id: "LP-1012", customerId: "C012", type: "monthly", amount: 80000, frequency: "monthly", interest: pct(2.5), principalPerDue: 10000, cycles: 8, dueOffset: 0, closedDaysAgo: 62 },
+  { id: "LP-1063", customerId: "C009", type: "30day", amount: 200000, frequency: "30days", interest: pct(5, "fixed"), cycles: 3, dueOffset: 0, closedDaysAgo: 40 },
+  { id: "LP-1093", customerId: "C010", type: "vehicle", amount: 250000, frequency: "monthly", interest: pct(1.5), cycles: 9, dueOffset: -12, security: vehicle("TN 56 C 7788", "commercial", "Tata", "Ace Gold", "Rajesh N", "RC-56-4410") },
+  { id: "LP-1019", customerId: "C010", type: "vehicle", amount: 120000, frequency: "monthly", interest: pct(2), cycles: 9, dueOffset: 0, closedDaysAgo: 3, security: vehicle("TN 56 B 3310", "bike", "Bajaj", "Pulsar 220", "Rajesh N", "RC-56-1187") },
+  { id: "LP-1110", customerId: "C011", type: "weekly", amount: 60000, frequency: "weekly", interest: fixed(1500), cycles: 5, dueOffset: 0, paidToday: true },
+  { id: "LP-1012", customerId: "C012", type: "monthly", amount: 80000, frequency: "monthly", interest: pct(2.5), cycles: 8, dueOffset: 0, closedDaysAgo: 62 },
   { id: "LP-1139", customerId: "C013", type: "jewel", amount: 120000, frequency: "monthly", interest: pct(2), cycles: 3, dueOffset: -38, security: jewel("Gold Necklace", 52, "22K", 390000, "PKT-0433") },
-  { id: "LP-1101", customerId: "C014", type: "monthly", amount: 200000, frequency: "monthly", interest: pct(2.5), cycles: 7, dueOffset: 0, security: { kind: "document", documentType: "Property Sale Deed", owner: "Senthil V", referenceNo: "SD-1187/2019", original: true, description: "House site, Kodumudi — 3 cents", storage: "Office locker B", status: "held" } },
-  { id: "LP-1175", customerId: "C015", type: "15day", amount: 20000, frequency: "15days", interest: fixed(800), principalPerDue: 5000, cycles: 0, dueOffset: -2 },
-  { id: "LP-1044", customerId: "C016", type: "vehicle", amount: 60000, frequency: "monthly", interest: pct(2), principalPerDue: 4000, cycles: 3, dueOffset: 2, security: vehicle("TN 36 AK 9021", "bike", "Honda", "Shine 125", "Balamurugan T", "RC-36-7730") },
-  { id: "LP-1125", customerId: "C017", type: "weekly", amount: 50000, frequency: "weekly", interest: fixed(1000), principalPerDue: 5000, cycles: 4, dueOffset: 0 },
-  { id: "LP-1163", customerId: "C017", type: "monthly", amount: 100000, frequency: "monthly", interest: pct(2.5), cycles: 1, dueOffset: 10 },
+  // Senthil — last month's interest was paid on time but entered late (BACKDATED entry).
+  { id: "LP-1101", customerId: "C014", type: "monthly", amount: 200000, frequency: "monthly", interest: pct(2.5), cycles: 7, dueOffset: 0, backdated: { cycle: 7, recordedDaysAgo: 1 }, security: { kind: "document", documentType: "Property Sale Deed", owner: "Senthil V", referenceNo: "SD-1187/2019", original: true, description: "House site, Kodumudi — 3 cents", storage: "Office locker B", status: "held" } },
+  { id: "LP-1175", customerId: "C015", type: "15day", amount: 20000, frequency: "15days", interest: fixed(800), cycles: 0, dueOffset: -2 },
+  { id: "LP-1044", customerId: "C016", type: "vehicle", amount: 60000, frequency: "monthly", interest: pct(2), cycles: 3, dueOffset: 2, security: vehicle("TN 36 AK 9021", "bike", "Honda", "Shine 125", "Balamurugan T", "RC-36-7730") },
+  { id: "LP-1125", customerId: "C017", type: "weekly", amount: 200000, frequency: "weekly", interest: fixed(5000), cycles: 4, dueOffset: 0 },
+  // Dinesh — returned ₹25,000 principal this month (partial principal).
+  { id: "LP-1163", customerId: "C017", type: "monthly", amount: 100000, frequency: "monthly", interest: pct(2.5), cycles: 1, dueOffset: 10, extraPrincipal: { 1: 25000 } },
   { id: "LP-1057", customerId: "C018", type: "monthly", amount: 300000, frequency: "monthly", interest: pct(3), cycles: 2, dueOffset: -65 },
   { id: "LP-1142", customerId: "C019", type: "jewel", amount: 45000, frequency: "monthly", interest: pct(2), cycles: 2, dueOffset: 0, paidToday: true, security: jewel("Gold Bangles (pair)", 24, "22K", 175000, "PKT-0457") },
+  { id: "LP-1031", customerId: "C019", type: "jewel", amount: 60000, frequency: "monthly", interest: pct(2), cycles: 5, dueOffset: 0, closedDaysAgo: 12, released: true, security: jewel("Gold Chain", 18, "22K", 160000, "PKT-0398") },
   { id: "LP-1098", customerId: "C020", type: "30day", amount: 60000, frequency: "30days", interest: pct(5, "fixed"), cycles: 1, dueOffset: -9 },
 ];
 
@@ -209,7 +223,7 @@ function generated(r: () => number) {
     const base = { id: `LP-${loanNo++}`, customerId: id, cycles: 1 + Math.floor(r() * 6), dueOffset, paidToday: dueOffset === 0 && i % 2 === 0 };
     if (kindRoll < 0.28) {
       const amount = 20000 + Math.round(r() * 8) * 5000;
-      loans.push({ ...base, type: "weekly", amount, frequency: "weekly", interest: fixed(Math.round(amount * 0.02)), principalPerDue: amount / 10 });
+      loans.push({ ...base, type: "weekly", amount, frequency: "weekly", interest: fixed(Math.round(amount * 0.025)) });
     } else if (kindRoll < 0.58) {
       const amount = 150000 + Math.round(r() * 13) * 50000;
       loans.push({ ...base, type: "monthly", amount, frequency: "monthly", interest: pct(pick([2, 2.5, 3])) });
@@ -222,7 +236,7 @@ function generated(r: () => number) {
       const [make, model] = isCar ? pick(CARS) : pick(BIKES);
       const amount = isCar ? 200000 + Math.round(r() * 8) * 25000 : 40000 + Math.round(r() * 6) * 5000;
       const reg = `TN ${pick(["33", "56", "36"])} ${String.fromCharCode(65 + Math.floor(r() * 26))}${String.fromCharCode(65 + Math.floor(r() * 26))} ${1000 + Math.floor(r() * 8999)}`;
-      loans.push({ ...base, type: "vehicle", amount, frequency: "monthly", interest: pct(2), principalPerDue: Math.round(amount / 20 / 500) * 500, security: vehicle(reg, isCar ? "car" : "bike", make, model, name, `RC-${reg.slice(3, 5)}-${1000 + i * 37}`) });
+      loans.push({ ...base, type: "vehicle", amount, frequency: "monthly", interest: pct(2), security: vehicle(reg, isCar ? "car" : "bike", make, model, name, `RC-${reg.slice(3, 5)}-${1000 + i * 37}`) });
     } else {
       const amount = 100000 + Math.round(r() * 10) * 25000;
       loans.push({ ...base, type: pick(["30day", "15day"] as const), amount, frequency: r() > 0.5 ? "30days" : "15days", interest: pct(4, "fixed") });
@@ -277,11 +291,11 @@ export function buildDemoDB(today: ISODate): DemoDB {
     const first = buildDue(loan, previousDueDate(targetDue, s.frequency, s.cycles), did());
     loanDues.push(first);
 
-    const receive = (date: ISODate, interest: number, principal: number) => {
+    const receive = (date: ISODate, interest: number, principal: number, recordedOn?: ISODate, note?: string) => {
       const res = applyPayment(
         loan,
         loanDues,
-        { loanId: loan.id, date, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)] },
+        { loanId: loan.id, date, recordedOn, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)], note },
         { paymentId: pid(), nextDueId: did() },
       );
       loan = res.loan;
@@ -295,12 +309,20 @@ export function buildDemoDB(today: ISODate): DemoDB {
       if (!due) break;
       const late = r() < 0.25 ? 1 + Math.floor(r() * 2) : 0;
       const extra = s.extraPrincipal?.[cycle] ?? 0;
-      receive(shiftISO(due.dueDate, late), due.interestAmount, due.principalAmount + extra);
+      const back = s.backdated?.cycle === cycle;
+      receive(
+        shiftISO(due.dueDate, back ? 0 : late),
+        due.interestAmount,
+        due.principalAmount + extra,
+        back ? shiftISO(today, -s.backdated!.recordedDaysAgo) : undefined,
+        back ? "Paid at Kodumudi, entered late" : undefined,
+      );
     }
 
     if (s.closedDaysAgo) {
       const due = openDue(loanDues);
       if (due) receive(due.dueDate, due.interestAmount, loan.principalLeft);
+      if (s.released && loan.security) loan = { ...loan, security: { ...loan.security, status: "released" } };
     } else {
       // Pin the current due to exactly the requested day (month lengths can drift).
       const due = openDue(loanDues);
@@ -328,11 +350,12 @@ export function buildDemoDB(today: ISODate): DemoDB {
 function seedActivity(today: ISODate): Activity[] {
   const at = (h: number, m: number, dayOffset = 0) => `${shiftISO(today, dayOffset)}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
   return [
-    { id: "A6", at: at(11, 20), by: "Mani", text: "Received ₹3,000 from Manikandan · LP-1110", kind: "payment" },
-    { id: "A5", at: at(10, 5), by: "Rajendran", text: "Received ₹10,000 from Saravanan P · LP-1075", kind: "payment" },
-    { id: "A4", at: at(9, 40), by: "Kavin", text: "Received ₹4,800 from Vignesh K · LP-1160", kind: "payment" },
-    { id: "A3", at: at(9, 15), by: "Rajendran", text: "Moved Prabhu M's payment to a later date", kind: "reschedule" },
-    { id: "A2", at: at(18, 30, -1), by: "Mani", text: "Received ₹4,000 part payment from Murugan S · LP-1088", kind: "payment" },
+    { id: "A7", at: at(11, 20), by: "Mani", text: "Received ₹1,500 from Manikandan · LP-1110", kind: "payment" },
+    { id: "A6", at: at(10, 5), by: "Rajendran", text: "Received ₹10,000 from Saravanan P · LP-1075", kind: "payment" },
+    { id: "A5", at: at(9, 40), by: "Kavin", text: "Received ₹2,000 from Vignesh K · LP-1160", kind: "payment" },
+    { id: "A4", at: at(9, 15), by: "Rajendran", text: "Moved Prabhu M's payment to a later date", kind: "reschedule" },
+    { id: "A3", at: at(19, 10, -1), by: "Kavin", text: "Recorded a backdated payment from Senthil V · LP-1101 (paid last month)", kind: "payment" },
+    { id: "A2", at: at(18, 30, -1), by: "Mani", text: "Received ₹1,500 part interest from Selvam · LP-1066", kind: "payment" },
     { id: "A1", at: at(17, 5, -1), by: "Rajendran", text: "Logged in from a new device (Chrome · Windows)", kind: "system" },
   ];
 }
