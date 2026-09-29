@@ -25,27 +25,29 @@ Demo data is generated relative to today's date and resets each day, or via
 5. Karthik R (₹10,000 due) → Collect `6000` → shows **Partial**, ₹4,000 still due.
 6. Any loan → Reschedule → move the date → "Rescheduled · <date>".
 7. Search `TN 33 AB 1234` → Murugan's vehicle loan → collateral details.
-8. Reports → Overview, Interest, Loan Position, Overdue, Settlements, Closed (see below).
+8. Reports → choose Person, Period and Show → Show Report (see below).
 9. More → Users → "view as" Collector / Staff to show role permissions.
 
-## Reports demo flow (interest-first business)
+## Reports (one simple screen)
 
-Most customers pay **interest only** and return principal later, so reports lead with
-interest and *Principal Left*; principal payments live under **Settlements**.
+Choose **Person** (All People or one person — search by name or phone), **Period**
+(Today … This Year, or Choose Dates) and **Show** (All, Paid, Pending, Partial, Overdue,
+Closed), then press **Show Report**. Quick buttons (Today, This Month, Pending, Overdue)
+apply straight away. **Download PDF** saves exactly the report on screen (A4).
 
-1. Reports → **Interest** → **This Month**: Expected / Received / Pending interest.
-2. **Filter** → Pending (or Overdue) → tap a customer → back returns to the same report.
-3. **Loan Position**: Principal Left for every active loan (sortable).
-4. **Columns** → turn *Principal Paid* on / off → **Save as Default** (kept in this browser).
-5. **Settlements**: Dinesh / Ravi (partial principal) and full settlements this month.
-6. **Closed**: closed loans with security status (Released / Pending Release / Not Applicable).
-7. **Backdated payment**: open an overdue loan (e.g. Kumaresan LP-1057) → Receive Payment →
-   pick a date last month → it appears in **Last Month** reports, not today's collection.
-   Senthil V (LP-1101) already has one backdated entry (paid last month, recorded later).
+Demo examples:
+1. All People · This Month · Pending → people with interest still to pay.
+2. All People · This Month · Paid → people who paid all interest due this month.
+3. Ravi Kumar · This Year · All → "Ravi Kumar Yearly Statement" (a ledger ending in Principal Left).
+4. All People · This Year · Closed → "Closed Loans This Year".
+5. Backdated: Kumaresan (LP-1057) → Receive Payment → pick a date last month →
+   it shows in Last Month reports, not this month. Senthil V (LP-1101) already has one.
+
+Most customers pay **interest only**; reports lead with Interest, Paid, Pending and
+Principal Left. Money received is always counted on the **payment date**.
 
 Receive Payment: *Pay Interest / Part Payment / Full Settlement* up front; *Pay Principal,
-Principal + Interest, Adjustment* under **More options**. Every payment keeps a
-**Payment Date** (used by all reports) and a **Recorded Date**.
+Principal + Interest, Adjustment* under **More options**.
 
 ## Where things live
 
@@ -55,8 +57,9 @@ Principal + Interest, Adjustment* under **More options**. Every payment keeps a
 | `src/lib/store.ts` | Local data store + actions (`receivePayment`, `reschedule`, `createLoan`, …) — the future API surface. |
 | `src/lib/demo-data.ts` | Fictional seeded customers, loans and history. |
 | `src/lib/selectors.ts` | Derived views: collection register, summaries, search, role permissions. |
-| `src/lib/reports.ts` | Report maths: date ranges, Interest, Loan Position, Overdue, Settlements, Closed. |
-| `src/components/reports/*` | Report tabs and the reusable table (search, filter, sort, Columns, mobile cards). |
+| `src/lib/reports.ts` | Report maths: periods, All People register, one-person ledger, report titles. |
+| `src/lib/report-pdf.ts` | Turns the on-screen report into an A4 PDF (jsPDF, loaded on demand). |
+| `src/components/reports/*` | Reports screen: Person / Period / Show controls, register, person statement. |
 | `src/lib/config.ts` | App name / branding. |
 | `src/components/*` | UI by area: `layout`, `collections`, `customers`, `loans`, `payments`, `security`, `ui`. |
 

@@ -1,30 +1,21 @@
 "use client";
 
-import { clsx } from "clsx";
-import { CalendarRange, Lock } from "lucide-react";
+import { Download, Lock } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
-import { ClosedTab } from "@/components/reports/closed-tab";
-import { InterestTab } from "@/components/reports/interest-tab";
-import { OverdueTab } from "@/components/reports/overdue-tab";
-import { OverviewTab, type ReportTab } from "@/components/reports/overview-tab";
-import { PositionTab } from "@/components/reports/position-tab";
-import { SettlementsTab } from "@/components/reports/settlements-tab";
+import { Figures } from "@/components/reports/bits";
+import { PersonView, personDoc } from "@/components/reports/person-view";
+import { RegisterView, registerDoc } from "@/components/reports/register-view";
+import { ReportControls, type ReportChoice } from "@/components/reports/report-controls";
 import { Card, EmptyState, Skeleton } from "@/components/ui/bits";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
 import { todayISO } from "@/lib/format";
-import { RANGE_OPTIONS, rangeFor, type RangeKey } from "@/lib/reports";
+import { pdfMoney, type ReportDoc } from "@/lib/report-pdf";
+import { personReport, RANGE_OPTIONS, rangeFor, registerReport, reportTitle, SHOW_OPTIONS, type RangeKey, type Show } from "@/lib/reports";
 import { permissions } from "@/lib/selectors";
 import { useAppState } from "@/lib/store";
-
-const TABS: { value: ReportTab; label: string; dated: boolean }[] = [
-  { value: "overview", label: "Overview", dated: true },
-  { value: "interest", label: "Interest", dated: true },
-  { value: "position", label: "Loan Position", dated: false },
-  { value: "overdue", label: "Overdue", dated: false },
-  { value: "settlements", label: "Settlements", dated: true },
-  { value: "closed", label: "Closed", dated: true },
-];
 
 export default function ReportsPage() {
   return (
@@ -39,28 +30,32 @@ function Reports() {
   const router = useRouter();
   const params = useSearchParams();
   const today = todayISO();
-  const pending = useRef<string | null>(null);
-  useEffect(() => {
-    pending.current = null; // the router has caught up
-  }, [params]);
+  const [busy, setBusy] = useState(false);
+  const perm = permissions(s);
 
-  const tabParam = params.get("tab") as ReportTab | null;
-  const tab = TABS.find((t) => t.value === tabParam) ?? TABS[0];
-  const rangeKey = (RANGE_OPTIONS.find((r) => r.value === params.get("range"))?.value ?? "month") as RangeKey;
-  const range = rangeFor(rangeKey, today, { from: params.get("from"), to: params.get("to") });
-
-  const update = (patch: Record<string, string | null>) => {
-    // Build on the latest pending change: a quick second tap must not overwrite the first.
-    const next = new URLSearchParams(pending.current ?? window.location.search);
-    for (const [k, v] of Object.entries(patch)) {
-      if (v === null) next.delete(k);
-      else next.set(k, v);
+  // The report on screen is described entirely by the URL, so Back returns to it.
+  const choice: ReportChoice = {
+    person: params.get("person"),
+    range: (RANGE_OPTIONS.find((o) => o.value === params.get("range"))?.value ?? "month") as RangeKey,
+    from: params.get("from") ?? undefined,
+    to: params.get("to") ?? undefined,
+    show: (SHOW_OPTIONS.find((o) => o.value === params.get("show"))?.value ?? "all") as Show,
+  };
+  const apply = (c: ReportChoice) => {
+    const q = new URLSearchParams();
+    if (c.person) q.set("person", c.person);
+    q.set("range", c.range);
+    if (c.range === "custom") {
+      if (c.from) q.set("from", c.from);
+      if (c.to) q.set("to", c.to);
     }
-    pending.current = next.toString();
-    router.replace(`/reports/?${next.toString()}`, { scroll: false });
+    q.set("show", c.show);
+    router.replace(`/reports/?${q.toString()}`, { scroll: false });
+    // Bring the new report into view (the controls fill most of a phone screen).
+    setTimeout(() => document.getElementById("report-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
   };
 
-  if (!permissions(s).seeReports)
+  if (!perm.seeReports)
     return (
       <>
         <PageHeader title="Reports" />
@@ -70,73 +65,67 @@ function Reports() {
       </>
     );
 
+  const range = rangeFor(choice.range, today, { from: choice.from, to: choice.to });
+  const people = s.customers.filter(perm.customerScope);
+  const person = choice.person ? personReport(s, today, range, choice.show, choice.person) : null;
+  const register = person ? null : registerReport(s, today, range, choice.show);
+  const title = reportTitle(range, choice.show, person?.customer.name);
+  const showLabel = SHOW_OPTIONS.find((o) => o.value === choice.show)!.label;
+  const figures = person ? person.figures : register!.figures;
+
+  // Whatever is on screen is exactly what goes into the PDF.
+  const download = async () => {
+    const doc: ReportDoc = {
+      title,
+      period: `${range.label}${choice.show !== "all" ? ` · Show: ${showLabel}` : ""}`,
+      summary: figures.map((f) => ({ label: f.label, value: f.money ? pdfMoney(f.value) : String(f.value) })),
+      fileName: `LedgerPro - ${title.replace(/[·–/\\:*?"<>|]+/g, "-")}.pdf`,
+      ...(person ? personDoc(person) : registerDoc(register!.lines)),
+    };
+    setBusy(true);
+    try {
+      const { downloadReportPdf } = await import("@/lib/report-pdf");
+      await downloadReportPdf(doc);
+      toast(`${title} — PDF downloaded`);
+    } catch {
+      toast(`${title} prepared`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <div>
-      <PageHeader title="Reports" subtitle={tab.dated ? range.label : "Current position · today"} />
+    <div className="mx-auto max-w-[1120px]">
+      <PageHeader title="Reports" subtitle="Choose person, date and what to see" />
 
-      {/* Report tabs */}
-      <div className="no-scrollbar sticky top-[calc(64px+env(safe-area-inset-top))] z-10 -mx-4 overflow-x-auto bg-canvas/90 px-4 pb-3 backdrop-blur-md md:static md:mx-0 md:bg-transparent md:px-0 md:backdrop-blur-none" role="tablist">
-        <div className="flex w-max gap-1 rounded-2xl bg-black/[0.05] p-1">
-          {TABS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              role="tab"
-              aria-selected={tab.value === t.value}
-              onClick={() => update({ tab: t.value })}
-              className={clsx(
-                "h-10 rounded-xl px-3.5 text-sm font-semibold whitespace-nowrap transition",
-                tab.value === t.value ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink-2",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <ReportControls key={params.toString()} applied={choice} people={people} today={today} onApply={apply} />
 
-      {/* Period */}
-      {tab.dated && (
-        <div className="mb-5">
-          <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:px-0">
-            {RANGE_OPTIONS.map((r) => (
-              <button
-                key={r.value}
-                type="button"
-                onClick={() => update({ range: r.value, ...(r.value === "custom" ? { from: range.from, to: range.to } : { from: null, to: null }) })}
-                className={clsx(
-                  "flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition",
-                  rangeKey === r.value ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-2 hover:border-faint",
-                )}
-              >
-                {r.value === "custom" && <CalendarRange className="size-4" />}
-                {r.label}
-              </button>
-            ))}
+      <section id="report-results" className="mt-6 scroll-mt-20 space-y-5" aria-live="polite">
+        <div className="flex flex-wrap items-end justify-between gap-3 px-1">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold tracking-tight md:text-2xl">{title}</h2>
+            <p className="text-sm text-muted">
+              {person ? person.customer.name : "All People"} · {range.label} · Show {showLabel}
+              {register && ` · ${register.lines.length} ${register.lines.length === 1 ? "loan" : "loans"}`}
+            </p>
           </div>
-          {rangeKey === "custom" && (
-            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:max-w-md">
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-muted">From</span>
-                <input type="date" value={range.from} max={today} onChange={(e) => e.target.value && update({ from: e.target.value })} className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-[16px]" />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold text-muted">To</span>
-                <input type="date" value={range.to} min={range.from} max={today} onChange={(e) => e.target.value && update({ to: e.target.value })} className="h-11 w-full rounded-xl border border-line bg-surface px-3 text-[16px]" />
-              </label>
-            </div>
-          )}
+          <Button variant="secondary" onClick={download} disabled={busy} className="shrink-0 tracking-wide uppercase">
+            <Download className="size-4.5" /> {busy ? "Preparing…" : "Download PDF"}
+          </Button>
         </div>
-      )}
 
-      <div key={tab.value + range.from + range.to} className="animate-page">
-        {tab.value === "overview" && <OverviewTab s={s} today={today} range={range} go={(t) => update({ tab: t })} />}
-        {tab.value === "interest" && <InterestTab s={s} today={today} range={range} />}
-        {tab.value === "position" && <PositionTab s={s} today={today} />}
-        {tab.value === "overdue" && <OverdueTab s={s} today={today} />}
-        {tab.value === "settlements" && <SettlementsTab s={s} range={range} />}
-        {tab.value === "closed" && <ClosedTab s={s} range={range} />}
-      </div>
+        {person ? (
+          <PersonView data={person} onAllPeople={() => apply({ ...choice, person: null })} />
+        ) : (
+          <>
+            <Figures figures={figures} />
+            <RegisterView lines={register!.lines} onPerson={(id) => apply({ ...choice, person: id })} />
+            {register!.lines.length > 0 && (
+              <p className="px-1 text-xs text-muted">Paid is counted on the day the customer paid. Tap a person to see their full history.</p>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }
