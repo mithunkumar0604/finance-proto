@@ -1,5 +1,7 @@
 # LedgerPro — Finance & Collection Manager (prototype)
 
+> Project state, decisions and change history: see [PROJECT-STATUS.md](PROJECT-STATUS.md).
+
 Clickable, mobile-first prototype of a loan and collection manager for a private
 finance business. It is a **UX/workflow demo**: all data is fictional and all
 money calculations are placeholder demo rules.
@@ -31,8 +33,9 @@ Demo data is generated relative to today's date and resets each day, or via
 ## Reports (one simple screen)
 
 Choose **Person** (All People or one person — search by name or phone), **Period**
-(Today … This Year, or Choose Dates) and **Show** (All, Paid, Pending, Partial, Overdue,
-Closed), then press **Show Report**. Quick buttons (Today, This Month, Pending, Overdue)
+(Today … This Year, Next Week, Next Month, or Choose Dates — any dates, past or future)
+and **Show** (All, Paid, Pending, Partial, Overdue, Upcoming, Closed), then press
+**Show Report**. Quick buttons (Today, This Month, Pending, Overdue)
 apply straight away. **Download PDF** saves exactly the report on screen (A4).
 
 Demo examples:
@@ -40,7 +43,10 @@ Demo examples:
 2. All People · This Month · Paid → people who paid all interest due this month.
 3. Ravi Kumar · This Year · All → "Ravi Kumar Yearly Statement" (a ledger ending in Principal Left).
 4. All People · This Year · Closed → "Closed Loans This Year".
-5. Backdated: Kumaresan (LP-1057) → Receive Payment → pick a date last month →
+5. All People · Next Month · All → "… Upcoming Report": who has to pay next month and
+   how much (expected amounts, worked out from today's principal).
+6. Choose Dates up to 31 December → what was paid, what is pending and what is coming.
+7. Backdated: Kumaresan (LP-1057) → Receive Payment → pick a date last month →
    it shows in Last Month reports, not this month. Senthil V (LP-1101) already has one.
 
 Most customers pay **interest only**; reports lead with Interest, Paid, Pending and
@@ -57,7 +63,7 @@ Principal + Interest, Adjustment* under **More options**.
 | `src/lib/store.ts` | Local data store + actions (`receivePayment`, `reschedule`, `createLoan`, …) — the future API surface. |
 | `src/lib/demo-data.ts` | Fictional seeded customers, loans and history. |
 | `src/lib/selectors.ts` | Derived views: collection register, summaries, search, role permissions. |
-| `src/lib/reports.ts` | Report maths: periods, All People register, one-person ledger, report titles. |
+| `src/lib/reports.ts` | Report maths: periods (past and future), All People register, one-person ledger, titles. |
 | `src/lib/report-pdf.ts` | Turns the on-screen report into an A4 PDF (jsPDF, loaded on demand). |
 | `src/components/reports/*` | Reports screen: Person / Period / Show controls, register, person statement. |
 | `src/lib/config.ts` | App name / branding. |

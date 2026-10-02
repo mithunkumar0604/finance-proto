@@ -212,6 +212,26 @@ export function openDue(loanDues: Due[]): Due | undefined {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
 }
 
+/**
+ * DEMO: expected future collections for a running loan, up to `until`.
+ * Continues the schedule after the current open due, one period at a time, using
+ * today's principal and interest setting. These are ESTIMATES: they change if the
+ * customer returns principal or closes the loan.
+ */
+export function projectDues(loan: Loan, loanDues: Due[], until: ISODate): Due[] {
+  if (loan.status !== "active") return [];
+  const open = openDue(loanDues);
+  if (!open) return [];
+  const out: Due[] = [];
+  let date = nextDueDate(open.rescheduled?.originalDate ?? open.dueDate, loan.frequency);
+  // Guard: a weekly loan over several years is still only a few hundred rows.
+  for (let i = 0; date <= until && i < 400; i++) {
+    out.push(buildDue(loan, date, `expected-${loan.id}-${i}`));
+    date = nextDueDate(date, loan.frequency);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Totals
 // ---------------------------------------------------------------------------

@@ -33,6 +33,7 @@ const STATUS_TINT: Record<string, [number, number, number]> = {
   PARTIAL: [146, 64, 14],
   PENDING: [71, 85, 105],
   OVERDUE: [190, 18, 60],
+  UPCOMING: [67, 56, 202],
   CLOSED: [71, 85, 105],
   LOAN: [11, 90, 71],
 };

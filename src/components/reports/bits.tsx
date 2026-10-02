@@ -9,13 +9,14 @@ const LABEL: Record<EntryKind, { text: string; cls: string }> = {
   pending: { text: "PENDING", cls: "bg-slate-100 text-slate-600 ring-slate-500/10" },
   partial: { text: "PARTIAL", cls: "bg-amber-50 text-amber-800 ring-amber-600/20" },
   overdue: { text: "OVERDUE", cls: "bg-rose-50 text-rose-700 ring-rose-600/15" },
+  upcoming: { text: "UPCOMING", cls: "bg-indigo-50 text-indigo-700 ring-indigo-600/15" },
   closed: { text: "CLOSED", cls: "bg-stone-100 text-stone-600 ring-stone-500/15" },
   loan: { text: "LOAN", cls: "bg-brand-50 text-brand-800 ring-brand-600/15" },
 };
 
 export const statusText = (s: EntryKind) => LABEL[s].text;
 
-/** PAID / PENDING / PARTIAL / OVERDUE / CLOSED — soft colours, always with a word. */
+/** PAID / PENDING / PARTIAL / OVERDUE / UPCOMING / CLOSED — soft colours, always with a word. */
 export function StatusLabel({ status }: { status: EntryKind }) {
   const m = LABEL[status];
   return (

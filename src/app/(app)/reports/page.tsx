@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, Lock } from "lucide-react";
+import { CalendarClock, Download, Lock } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { todayISO } from "@/lib/format";
 import { pdfMoney, type ReportDoc } from "@/lib/report-pdf";
-import { personReport, RANGE_OPTIONS, rangeFor, registerReport, reportTitle, SHOW_OPTIONS, type RangeKey, type Show } from "@/lib/reports";
+import { modeOf, personReport, RANGE_OPTIONS, rangeFor, registerReport, reportTitle, SHOW_OPTIONS, type RangeKey, type Show } from "@/lib/reports";
 import { permissions } from "@/lib/selectors";
 import { useAppState } from "@/lib/store";
 
@@ -69,7 +69,8 @@ function Reports() {
   const people = s.customers.filter(perm.customerScope);
   const person = choice.person ? personReport(s, today, range, choice.show, choice.person) : null;
   const register = person ? null : registerReport(s, today, range, choice.show);
-  const title = reportTitle(range, choice.show, person?.customer.name);
+  const mode = modeOf(range, today);
+  const title = reportTitle(range, choice.show, mode, person?.customer.name);
   const showLabel = SHOW_OPTIONS.find((o) => o.value === choice.show)!.label;
   const figures = person ? person.figures : register!.figures;
 
@@ -80,7 +81,7 @@ function Reports() {
       period: `${range.label}${choice.show !== "all" ? ` · Show: ${showLabel}` : ""}`,
       summary: figures.map((f) => ({ label: f.label, value: f.money ? pdfMoney(f.value) : String(f.value) })),
       fileName: `LedgerPro - ${title.replace(/[·–/\\:*?"<>|]+/g, "-")}.pdf`,
-      ...(person ? personDoc(person) : registerDoc(register!.lines)),
+      ...(person ? personDoc(person) : registerDoc(register!.lines, mode)),
     };
     setBusy(true);
     try {
@@ -119,11 +120,19 @@ function Reports() {
         ) : (
           <>
             <Figures figures={figures} />
-            <RegisterView lines={register!.lines} onPerson={(id) => apply({ ...choice, person: id })} />
-            {register!.lines.length > 0 && (
+            <RegisterView lines={register!.lines} mode={mode} onPerson={(id) => apply({ ...choice, person: id })} />
+            {register!.lines.length > 0 && mode !== "future" && (
               <p className="px-1 text-xs text-muted">Paid is counted on the day the customer paid. Tap a person to see their full history.</p>
             )}
           </>
+        )}
+        {mode !== "past" && (
+          <p className="flex items-start gap-2 rounded-2xl bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+            <CalendarClock className="mt-0.5 size-4 shrink-0" />
+            <span>
+              Upcoming amounts are <b>expected</b> interest, worked out from today&apos;s principal. They change if a customer returns principal or closes the loan.
+            </span>
+          </p>
         )}
       </section>
     </div>

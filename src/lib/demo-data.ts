@@ -270,8 +270,13 @@ export function buildDemoDB(today: ISODate): DemoDB {
   const pid = () => `P${String(pay++).padStart(5, "0")}`;
   const did = () => `D${String(dueNo++).padStart(5, "0")}`;
 
+  // The next collection is never more than one period away (otherwise the history
+  // built below would contain payments dated in the future).
+  const PERIOD_DAYS = { weekly: 7, "15days": 15, "30days": 30, monthly: 28, custom: 30 } as const;
+
   for (const s of loanSpecs) {
-    const targetDue = shiftISO(today, s.closedDaysAgo ? -s.closedDaysAgo : s.dueOffset);
+    const dueOffset = Math.min(s.dueOffset, PERIOD_DAYS[s.frequency] - 1);
+    const targetDue = shiftISO(today, s.closedDaysAgo ? -s.closedDaysAgo : dueOffset);
     const startDate = previousDueDate(targetDue, s.frequency, s.cycles + 1);
     let loan: Loan = {
       id: s.id,
@@ -310,8 +315,9 @@ export function buildDemoDB(today: ISODate): DemoDB {
       const late = r() < 0.25 ? 1 + Math.floor(r() * 2) : 0;
       const extra = s.extraPrincipal?.[cycle] ?? 0;
       const back = s.backdated?.cycle === cycle;
+      const paidOn = shiftISO(due.dueDate, back ? 0 : late);
       receive(
-        shiftISO(due.dueDate, back ? 0 : late),
+        paidOn > today ? today : paidOn,
         due.interestAmount,
         due.principalAmount + extra,
         back ? shiftISO(today, -s.backdated!.recordedDaysAgo) : undefined,

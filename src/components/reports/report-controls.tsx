@@ -72,8 +72,8 @@ export function ReportControls({
           />
           {c.range === "custom" && (
             <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <DateBox label="From Date" value={c.from ?? ""} max={today} onChange={(from) => setC({ ...c, from })} />
-              <DateBox label="To Date" value={c.to ?? ""} min={c.from} max={today} onChange={(to) => setC({ ...c, to })} />
+              <DateBox label="From Date" value={c.from ?? ""} onChange={(from) => setC({ ...c, from, to: c.to && c.to < from ? from : c.to })} />
+              <DateBox label="To Date" value={c.to ?? ""} min={c.from} onChange={(to) => setC({ ...c, to })} />
             </div>
           )}
         </Group>
@@ -122,11 +122,11 @@ function Pills<T extends string>({ value, options, onChange }: { value: T; optio
   );
 }
 
-function DateBox({ label, value, min, max, onChange }: { label: string; value: string; min?: string; max?: string; onChange: (v: string) => void }) {
+function DateBox({ label, value, min, onChange }: { label: string; value: string; min?: string; onChange: (v: string) => void }) {
   return (
     <label className="block min-w-0">
       <span className="mb-1 block text-xs font-semibold text-muted">{label}</span>
-      <input type="date" value={value} min={min} max={max} onChange={(e) => e.target.value && onChange(e.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-[16px]" />
+      <input type="date" value={value} min={min} onChange={(e) => e.target.value && onChange(e.target.value)} className="h-11 w-full min-w-0 rounded-xl border border-line bg-surface px-3 text-[16px]" />
     </label>
   );
 }
