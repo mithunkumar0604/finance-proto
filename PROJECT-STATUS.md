@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 2 October 2026.
+Last updated: 3 October 2026.
 
 ## What this is
 
@@ -38,7 +38,7 @@ browser, and all money calculations are placeholder demo rules.
 | Global search: name, phone, vehicle number, loan ID | Done |
 | Collections register: Today / Tomorrow / Overdue / Upcoming, loan-type filter | Done |
 | Customers list and customer profile (loans, payments, documents, notes) | Done |
-| Loans list and loan details with payment timeline and collateral | Done |
+| Loans list and loan details with payment timeline, coming collections, end date and collateral | Done |
 | Receive Payment: Pay Interest / Part Payment / Full Settlement; Pay Principal, Principal + Interest, Adjustment under "More options"; backdated dates | Done |
 | Reschedule (move a payment date) | Done |
 | New Customer, New Loan wizard (6 steps; jewel / vehicle / document security) | Done |
@@ -71,9 +71,20 @@ then press **Show Report**. **Download PDF** saves exactly what is on screen.
    the client and replaced by the single Person / Period / Show screen with PDF download.
 4. **Upcoming reports** — Next Week, Next Month and future custom dates added, so the
    owner can see who has to pay in the coming weeks or months.
+5. **Loan schedule and end date** (agent feedback on a weekly instalment loan) — the
+   loan page's Payment Timeline now lists the coming collections. A loan with "principal
+   with each collection" shows every collection up to a "Loan Ends" line and an "Ends On"
+   row in the summary; an interest-only loan shows its next three interest dates and
+   "No end date". Upcoming reports stop at a loan's end. Each collection now records how
+   much of what was paid was interest, so a principal-only payment no longer hides
+   interest that is still due.
 
 ## Open points
 
+- **Question for the client:** do short-term, higher-interest loans have an agreed return
+  date or period (for example "30 days")? If yes, add an optional "Loan period" to the
+  New Loan wizard so those loans show an end date too. Today only loans that repay
+  principal with each collection have an end date.
 - Real interest and settlement rules from the client (replace `demo-calculations.ts`).
 - PDFs print money as "Rs." because the built-in PDF fonts have no ₹ sign. Embedding a
   font would fix this at the cost of a larger download.

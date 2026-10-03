@@ -21,7 +21,8 @@ Demo data is generated relative to today's date and resets each day, or via
 ## Demo flow to present
 
 1. Home → today's expected / collected / pending, due-today list.
-2. Search "Ravi" → Ravi Kumar → loan **LP-1024** → payment timeline.
+2. Search "Ravi" → Ravi Kumar → loan **LP-1024** → payment timeline, including the
+   coming collections (instalment loans also show "Loan Ends" and an "Ends On" date).
 3. Receive Payment → enter `33600` (₹3,600 interest + ₹30,000 principal) → Confirm.
 4. Principal drops ₹1,20,000 → ₹90,000; Collections → Today shows Ravi as Paid.
 5. Karthik R (₹10,000 due) → Collect `6000` → shows **Partial**, ₹4,000 still due.

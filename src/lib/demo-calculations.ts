@@ -86,8 +86,9 @@ export function buildDue(loan: Loan, dueDate: ISODate, id: string): Due {
 
 export const dueTotal = (d: Due) => d.interestAmount + d.principalAmount;
 export const dueRemaining = (d: Due) => Math.max(0, dueTotal(d) - d.paid);
-/** DEMO: part payments are applied to interest first. */
-export const dueInterestLeft = (d: Due) => Math.max(0, d.interestAmount - d.paid);
+/** Interest already paid on a due. Older records without the split: interest counts first. */
+export const dueInterestPaid = (d: Due) => d.interestPaid ?? Math.min(d.interestAmount, d.paid);
+export const dueInterestLeft = (d: Due) => Math.max(0, d.interestAmount - dueInterestPaid(d));
 
 export function dueStatus(d: Due, today: ISODate): DueStatus {
   if (dueRemaining(d) <= 0) return "paid";
@@ -164,11 +165,10 @@ export function applyPayment(
     // DEMO: interest pays the due's interest; principal only counts towards the due's
     // scheduled principal part. Extra principal reduces the balance without "paying"
     // the interest that is still owed.
-    const interestPaid = Math.min(due.interestAmount, due.paid);
-    const principalPaid = Math.max(0, due.paid - due.interestAmount);
-    due.paid =
-      Math.min(due.interestAmount, interestPaid + input.interest) +
-      Math.min(due.principalAmount, principalPaid + input.principal);
+    const interestPaid = Math.min(due.interestAmount, dueInterestPaid(due) + input.interest);
+    const principalPaid = Math.min(due.principalAmount, due.paid - dueInterestPaid(due) + input.principal);
+    due.interestPaid = interestPaid;
+    due.paid = interestPaid + principalPaid;
     if (input.interest + input.principal > 0) due.lastPaidDate = input.date;
   }
 
@@ -192,7 +192,10 @@ export function applyPayment(
     updatedLoan.closedDate = input.date;
     // Security stays HELD ("pending release") until the owner hands it back.
     for (const d of dues) if (dueRemaining(d) > 0 && d !== due) d.cancelled = true;
-    if (due && dueRemaining(due) > 0) due.paid = dueTotal(due); // settled in full
+    if (due && dueRemaining(due) > 0) {
+      due.interestPaid = due.interestAmount; // settled in full
+      due.paid = dueTotal(due);
+    }
     return { loan: updatedLoan, dues, payment, closed: true };
   }
 
@@ -212,24 +215,74 @@ export function openDue(loanDues: Due[]): Due | undefined {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
 }
 
+/** Principal part of a due that has not been paid yet. */
+const duePrincipalLeft = (d: Due) => Math.max(0, d.principalAmount - (d.paid - dueInterestPaid(d)));
+
 /**
- * DEMO: expected future collections for a running loan, up to `until`.
- * Continues the schedule after the current open due, one period at a time, using
- * today's principal and interest setting. These are ESTIMATES: they change if the
- * customer returns principal or closes the loan.
+ * DEMO: expected future collections for a running loan, after its current open due.
+ * Walks the schedule one period at a time: interest by the loan's setting on the balance
+ * at that point, principal by "principal with each collection". It stops at `until`, after
+ * `limit` rows, or when the principal reaches zero (an instalment loan ends; an
+ * interest-only loan has no end). These are ESTIMATES: they change if the customer
+ * returns principal early or closes the loan.
  */
-export function projectDues(loan: Loan, loanDues: Due[], until: ISODate): Due[] {
+export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit = 400): Due[] {
   if (loan.status !== "active") return [];
   const open = openDue(loanDues);
   if (!open) return [];
   const out: Due[] = [];
+  let principal = loan.principalLeft - duePrincipalLeft(open);
   let date = nextDueDate(open.rescheduled?.originalDate ?? open.dueDate, loan.frequency);
-  // Guard: a weekly loan over several years is still only a few hundred rows.
-  for (let i = 0; date <= until && i < 400; i++) {
-    out.push(buildDue(loan, date, `expected-${loan.id}-${i}`));
+  for (let i = 0; date <= until && i < limit && principal > 0; i++) {
+    const due = buildDue({ ...loan, principalLeft: principal }, date, `expected-${loan.id}-${i}`);
+    out.push(due);
+    principal -= due.principalAmount;
     date = nextDueDate(date, loan.frequency);
   }
   return out;
+}
+
+export interface ScheduleRow {
+  date: ISODate;
+  interest: number;
+  principal: number;
+  /** Principal left once this collection is paid. */
+  balanceAfter: number;
+}
+
+export interface LoanSchedule {
+  rows: ScheduleRow[];
+  /** true when the customer pays interest only, so the loan has no end date. */
+  interestOnly: boolean;
+  /** Date of the last collection, for loans that repay principal with each collection. */
+  endsOn?: ISODate;
+  totalToCollect: number;
+  totalInterest: number;
+}
+
+/**
+ * DEMO: what is still to come on a loan. Instalment loans list every collection up to the
+ * last one; interest-only loans list the next few interest dates.
+ */
+export function loanSchedule(loan: Loan, loanDues: Due[], interestOnlyRows = 3): LoanSchedule | null {
+  const open = loan.status === "active" ? openDue(loanDues) : undefined;
+  if (!open) return null;
+  const interestOnly = loan.principalPerDue <= 0;
+  const FAR = "9999-12-31";
+  const future = projectDues(loan, loanDues, FAR, interestOnly ? interestOnlyRows - 1 : 600);
+  let balance = loan.principalLeft;
+  const rows: ScheduleRow[] = [
+    { date: open.dueDate, interest: dueInterestLeft(open), principal: duePrincipalLeft(open), balanceAfter: (balance -= duePrincipalLeft(open)) },
+    ...future.map((d) => ({ date: d.dueDate, interest: d.interestAmount, principal: d.principalAmount, balanceAfter: (balance -= d.principalAmount) })),
+  ];
+  const finished = !interestOnly && rows[rows.length - 1].balanceAfter <= 0;
+  return {
+    rows,
+    interestOnly,
+    endsOn: finished ? rows[rows.length - 1].date : undefined,
+    totalToCollect: rows.reduce((a, r) => a + r.interest + r.principal, 0),
+    totalInterest: rows.reduce((a, r) => a + r.interest, 0),
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -100,6 +100,8 @@ export interface Due {
   interestAmount: number;
   principalAmount: number;
   paid: number;
+  /** How much of `paid` was interest. Absent on older records: then interest is assumed paid first. */
+  interestPaid?: number;
   lastPaidDate?: ISODate;
   /** Set when the date was moved. originalDate keeps the day it was first expected. */
   rescheduled?: { originalDate: ISODate; reason: string };

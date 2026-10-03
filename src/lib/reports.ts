@@ -9,7 +9,7 @@
 //   estimate (see projectDues in demo-calculations).
 
 import { addDays, addMonths, addWeeks, endOfMonth, format, parseISO, startOfMonth, startOfWeek, startOfYear, subMonths } from "date-fns";
-import { dueInterestLeft, openDue, projectDues } from "./demo-calculations";
+import { dueInterestLeft, dueInterestPaid, openDue, projectDues } from "./demo-calculations";
 import { daysBetween, LOAN_TYPE_LABEL, toISO } from "./format";
 import { permissions } from "./selectors";
 import type { AppState } from "./store";
@@ -190,7 +190,7 @@ export function registerReport(s: AppState, today: ISODate, range: DateRange, sh
     const pending = due.reduce((a, d) => a + dueInterestLeft(d), 0);
     const upcoming = coming.reduce((a, d) => a + dueInterestLeft(d), 0);
     const late = due.filter((d) => dueInterestLeft(d) > 0 && d.dueDate < today);
-    const partPaid = due.some((d) => dueInterestLeft(d) > 0 && d.paid > 0);
+    const partPaid = due.some((d) => dueInterestLeft(d) > 0 && dueInterestPaid(d) > 0);
     const status: Status = closedInPeriod
       ? "closed"
       : late.length
@@ -376,7 +376,7 @@ export function personReport(s: AppState, today: ISODate, range: DateRange, show
       if (left <= 0) continue;
       if (d.dueDate > today) entries.push({ date: d.dueDate, details: "Interest To Pay", note: `${tag(loan)}expected`, amount: left, status: "upcoming" });
       else
-        entries.push({ date: d.dueDate, details: "Interest Pending", note: `${tag(loan)}due ${format(parseISO(d.dueDate), "d MMM")}`, amount: left, status: d.dueDate < today ? "overdue" : d.paid > 0 ? "partial" : "pending" });
+        entries.push({ date: d.dueDate, details: "Interest Pending", note: `${tag(loan)}due ${format(parseISO(d.dueDate), "d MMM")}`, amount: left, status: d.dueDate < today ? "overdue" : dueInterestPaid(d) > 0 ? "partial" : "pending" });
     }
 
     if (loan.status === "closed" && loan.closedDate && inRange(loan.closedDate, range))

@@ -1,13 +1,23 @@
 "use client";
 
 import { clsx } from "clsx";
-import type { ReactNode } from "react";
-import { dueTotal } from "@/lib/demo-calculations";
+import { useState, type ReactNode } from "react";
+import type { LoanSchedule } from "@/lib/demo-calculations";
 import { dLong, dShort, METHOD_LABEL, money } from "@/lib/format";
-import type { Due, Loan, Payment } from "@/lib/types";
+import type { Loan, Payment } from "@/lib/types";
 
-/** Vertical history: money given → each payment (with split) → where principal stands now. */
-export function LoanTimeline({ loan, payments, next }: { loan: Loan; payments: Payment[]; next?: Due }) {
+/** How many coming collections to show before "Show all". */
+const PREVIEW = 4;
+
+/**
+ * Vertical history: money given → each payment (with split) → where principal stands now
+ * → what is still to come (and, for instalment loans, when the loan ends).
+ */
+export function LoanTimeline({ loan, payments, schedule, today }: { loan: Loan; payments: Payment[]; schedule?: LoanSchedule | null; today: string }) {
+  const [showAll, setShowAll] = useState(false);
+  const rows = schedule?.rows ?? [];
+  const shown = showAll ? rows : rows.slice(0, PREVIEW);
+  const hidden = rows.length - shown.length;
   const items = payments.reduce<{ p: Payment; after: number }[]>(
     (acc, p) => [...acc, { p, after: (acc.at(-1)?.after ?? loan.amount) - p.principal }],
     [],
@@ -57,21 +67,78 @@ export function LoanTimeline({ loan, payments, next }: { loan: Loan; payments: P
         );
       })}
 
-      <Item dot="bg-brand-700 ring-4 ring-brand-100" date="Now" last={!next}>
+      <Item dot="bg-brand-700 ring-4 ring-brand-100" date="Now" last={!schedule}>
         <div className="flex items-baseline justify-between gap-3 rounded-2xl bg-brand-50 px-3 py-2.5">
           <p className="font-bold text-brand-800">{loan.status === "closed" ? "Loan Closed" : "Current Principal"}</p>
           <p className="num text-lg font-extrabold text-brand-800">{money(loan.principalLeft)}</p>
         </div>
       </Item>
 
-      {next && (
-        <Item dot="border-2 border-dashed border-faint bg-surface" date={dShort(next.dueDate)} year={next.dueDate.slice(0, 4)} last muted>
-          <div className="flex items-baseline justify-between gap-3">
-            <p className="font-semibold text-muted">Next Collection</p>
-            <p className="num font-bold text-muted">{money(dueTotal(next) - next.paid)}</p>
-          </div>
-          <p className="text-[13px] text-faint">Expected {dLong(next.dueDate)}</p>
-        </Item>
+      {schedule && (
+        <>
+          <li className="grid grid-cols-[56px_20px_1fr] gap-x-2 pb-3">
+            <span />
+            <span className="relative flex justify-center">
+              <span className="absolute -top-2 -bottom-3 w-0.5 bg-line" />
+            </span>
+            <p className="text-[11px] font-bold tracking-[0.08em] text-faint uppercase">Coming collections · expected</p>
+          </li>
+
+          {shown.map((r, n) => {
+            const late = r.date < today;
+            return (
+              <Item key={r.date + n} dot="border-2 border-dashed border-faint bg-surface" date={dShort(r.date)} year={r.date.slice(0, 4)} muted={n > 0}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className={clsx("font-semibold", late ? "text-rose-700" : n === 0 ? "text-ink-2" : "text-muted")}>
+                    {n === 0 ? (late ? "Overdue Collection" : "Next Collection") : r.principal > 0 ? "Collection" : "Interest"}
+                  </p>
+                  <p className={clsx("num font-bold", n === 0 ? "text-ink-2" : "text-muted")}>{money(r.interest + r.principal)}</p>
+                </div>
+                {r.principal > 0 ? (
+                  <p className="num text-[13px] text-faint">
+                    Interest {money(r.interest)} · Principal {money(r.principal)} · Left {money(r.balanceAfter)}
+                  </p>
+                ) : (
+                  n === 0 && <p className="text-[13px] text-faint">Expected {dLong(r.date)}</p>
+                )}
+              </Item>
+            );
+          })}
+
+          {hidden > 0 && (
+            <li className="grid grid-cols-[56px_20px_1fr] gap-x-2 pb-5">
+              <span />
+              <span className="relative flex justify-center">
+                <span className="absolute -top-5 -bottom-5 w-0.5 bg-line" />
+              </span>
+              <button type="button" onClick={() => setShowAll(true)} className="h-9 w-fit rounded-xl bg-line-2 px-3 text-sm font-semibold text-brand-700 hover:bg-line">
+                Show all {rows.length} collections
+              </button>
+            </li>
+          )}
+
+          {schedule.endsOn ? (
+            <Item dot="bg-ink" date={dShort(schedule.endsOn)} year={schedule.endsOn.slice(0, 4)} last>
+              <div className="rounded-2xl border border-line px-3 py-2.5">
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="font-bold">Loan Ends</p>
+                  <p className="num font-extrabold">{dLong(schedule.endsOn)}</p>
+                </div>
+                <p className="num mt-0.5 text-[13px] text-muted">
+                  {rows.length} collection{rows.length === 1 ? "" : "s"} left · {money(schedule.totalToCollect)} to collect (interest {money(schedule.totalInterest)})
+                </p>
+              </div>
+            </Item>
+          ) : (
+            <Item dot="border-2 border-dashed border-faint bg-surface" date="Later" last muted>
+              <p className="text-[13px] text-muted">
+                {schedule.interestOnly
+                  ? "No end date. Interest continues each period until the principal is returned."
+                  : "More collections follow."}
+              </p>
+            </Item>
+          )}
+        </>
       )}
     </ol>
   );

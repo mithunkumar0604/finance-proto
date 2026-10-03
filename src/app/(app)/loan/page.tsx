@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { DecimalInput, Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
-import { dueRemaining } from "@/lib/demo-calculations";
+import { dueRemaining, loanSchedule } from "@/lib/demo-calculations";
 import { dLong, dRelative, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { loanView, permissions } from "@/lib/selectors";
 import { actions, useAppState } from "@/lib/store";
@@ -53,6 +53,7 @@ function LoanDetails() {
   const h = HEALTH_META[v.health];
   const repaid = loan.amount - loan.principalLeft;
   const active = loan.status === "active";
+  const schedule = loanSchedule(loan, s.dues.filter((d) => d.loanId === loan.id && !d.cancelled));
 
   return (
     <div>
@@ -140,6 +141,12 @@ function LoanDetails() {
               <Row label="Payment Frequency" value={FREQ_LABEL[loan.frequency]} />
               <Row label="Given On" value={dLong(loan.startDate)} />
               <Row label="Next Collection" value={active && v.next ? dLong(v.next.dueDate) : "—"} />
+              {schedule && (
+                <Row
+                  label="Ends On"
+                  value={schedule.endsOn ? `${dLong(schedule.endsOn)} · ${schedule.rows.length} collection${schedule.rows.length === 1 ? "" : "s"} left` : "No end date · interest only"}
+                />
+              )}
               <Row label="Security" value={loan.security ? "Held — see below" : "None"} />
               {loan.reference && <Row label="Reference" value={loan.reference} />}
               <Row label="Total Collected" value={money(v.collected)} />
@@ -173,7 +180,7 @@ function LoanDetails() {
         <section>
           <SectionHeader title="Payment Timeline" />
           <Card className="p-4 md:p-5">
-            <LoanTimeline loan={loan} payments={v.payments} next={active ? v.next : undefined} />
+            <LoanTimeline loan={loan} payments={v.payments} schedule={schedule} today={today} />
           </Card>
         </section>
       </div>
