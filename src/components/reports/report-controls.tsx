@@ -30,6 +30,15 @@ export function ReportControls({
   onApply: (c: ReportChoice) => void;
 }) {
   const [c, setC] = useState<ReportChoice>(applied);
+  // When the report on screen changes (quick button, back, tapping a person), copy over only
+  // the choices that changed. Anything the user picked while that update was on its way stays.
+  const [seen, setSeen] = useState<ReportChoice>(applied);
+  if (JSON.stringify(seen) !== JSON.stringify(applied)) {
+    const keys = ["person", "range", "from", "to", "show"] as const;
+    const moved = Object.fromEntries(keys.filter((k) => applied[k] !== seen[k]).map((k) => [k, applied[k]]));
+    setSeen(applied);
+    setC({ ...c, ...moved });
+  }
   const changed = JSON.stringify(c) !== JSON.stringify(applied);
 
   const quick: { label: string; icon: ReactNode; next: ReportChoice; on: boolean }[] = [

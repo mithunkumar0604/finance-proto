@@ -99,7 +99,7 @@ function Reports() {
     <div className="mx-auto max-w-[1120px]">
       <PageHeader title="Reports" subtitle="Choose person, date and what to see" />
 
-      <ReportControls key={params.toString()} applied={choice} people={people} today={today} onApply={apply} />
+      <ReportControls applied={choice} people={people} today={today} onApply={apply} />
 
       <section id="report-results" className="mt-6 scroll-mt-20 space-y-5" aria-live="polite">
         <div className="flex flex-wrap items-end justify-between gap-3 px-1">
