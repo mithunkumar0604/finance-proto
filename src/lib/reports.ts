@@ -6,10 +6,10 @@
 // - Interest that fell due in the period, plus older interest still unpaid, is what
 //   a person "owes" for that period.
 // - Periods may reach into the future. Coming interest is shown as UPCOMING and is an
-//   estimate (see projectDues in demo-calculations).
+//   estimate (see projectDues in finance/engine).
 
 import { addDays, addMonths, addWeeks, endOfMonth, format, parseISO, startOfMonth, startOfWeek, startOfYear, subMonths } from "date-fns";
-import { dueInterestLeft, dueInterestPaid, openDue, projectDues } from "./demo-calculations";
+import { dueInterestLeft, dueInterestPaid, openDue, projectDues } from "./finance/engine";
 import { daysBetween, LOAN_TYPE_LABEL, toISO } from "./format";
 import { permissions } from "./selectors";
 import type { AppState } from "./store";

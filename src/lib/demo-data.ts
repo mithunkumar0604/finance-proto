@@ -1,8 +1,10 @@
 // Fictional demo dataset. All names, numbers, vehicles and addresses are invented.
 // Data is generated relative to "today" so the prototype always looks live,
-// and history is produced by running the same (demo) payment logic the UI uses.
+// and history is produced by running the same payment logic the UI uses.
+// Amounts in the specs below are written in rupees and converted to paise when built.
 
-import { applyPayment, buildDue, openDue, previousDueDate } from "./demo-calculations";
+import { applyPayment, buildDue, openDue, previousDueDate } from "./finance/engine";
+import { rupees } from "./finance/money";
 import { shiftISO } from "./format";
 import type {
   Activity,
@@ -123,7 +125,7 @@ const jewel = (description: string, weightGrams: number, purity: string, estimat
   description,
   weightGrams,
   purity,
-  estimatedValue,
+  estimatedValue: rupees(estimatedValue),
   packetNo,
   storage: "Office locker A",
   notes,
@@ -274,7 +276,15 @@ export function buildDemoDB(today: ISODate): DemoDB {
   // built below would contain payments dated in the future).
   const PERIOD_DAYS = { weekly: 7, "15days": 15, "30days": 30, monthly: 28, custom: 30 } as const;
 
-  for (const s of loanSpecs) {
+  for (const spec of loanSpecs) {
+    const s: LoanSpec = {
+      ...spec,
+      amount: rupees(spec.amount),
+      interest: spec.interest.style === "percent" ? spec.interest : { ...spec.interest, value: rupees(spec.interest.value) },
+      principalPerDue: rupees(spec.principalPerDue ?? 0),
+      extraPrincipal: spec.extraPrincipal && Object.fromEntries(Object.entries(spec.extraPrincipal).map(([k, v]) => [k, rupees(v)])),
+      partial: spec.partial && { ...spec.partial, amount: rupees(spec.partial.amount) },
+    };
     const dueOffset = Math.min(s.dueOffset, PERIOD_DAYS[s.frequency] - 1);
     const targetDue = shiftISO(today, s.closedDaysAgo ? -s.closedDaysAgo : dueOffset);
     const startDate = previousDueDate(targetDue, s.frequency, s.cycles + 1);
@@ -300,8 +310,9 @@ export function buildDemoDB(today: ISODate): DemoDB {
       const res = applyPayment(
         loan,
         loanDues,
-        { loanId: loan.id, date, recordedOn, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)], note },
+        { loanId: loan.id, date, recordedOn: recordedOn ?? date, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)], note },
         { paymentId: pid(), nextDueId: did() },
+        today,
       );
       loan = res.loan;
       loanDues = res.dues;

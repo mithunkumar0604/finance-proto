@@ -2,6 +2,7 @@
 // The screen builds a ReportDoc (plain strings); this file only lays it out.
 // jsPDF is loaded on demand so it doesn't weigh down the app.
 
+import { rupeeDigits } from "./format";
 import { APP } from "./config";
 
 export interface ReportDoc {
@@ -22,7 +23,7 @@ export interface ReportDoc {
 }
 
 /** Standard PDF fonts have no ₹ glyph, so PDFs use "Rs." */
-export const pdfMoney = (n: number) => `Rs. ${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(Math.round(n))}`;
+export const pdfMoney = (paise: number) => `${paise < 0 ? "-" : ""}Rs. ${rupeeDigits(paise)}`;
 
 const INK: [number, number, number] = [16, 32, 27];
 const MUTED: [number, number, number] = [107, 119, 114];

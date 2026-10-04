@@ -102,6 +102,8 @@ export interface Due {
   paid: number;
   /** How much of `paid` was interest. Absent on older records: then interest is assumed paid first. */
   interestPaid?: number;
+  /** Written off when the loan was settled without paying this in full. Never counted as received. */
+  waived?: number;
   lastPaidDate?: ISODate;
   /** Set when the date was moved. originalDate keeps the day it was first expected. */
   rescheduled?: { originalDate: ISODate; reason: string };

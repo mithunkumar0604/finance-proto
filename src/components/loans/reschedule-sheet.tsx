@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Textarea } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
-import { dueRemaining } from "@/lib/demo-calculations";
+import { dueRemaining } from "@/lib/finance/engine";
 import { dLong, dShort, money, shiftISO, todayISO } from "@/lib/format";
 import { actions, useAppState } from "@/lib/store";
 

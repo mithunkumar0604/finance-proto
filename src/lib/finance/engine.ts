@@ -1,74 +1,73 @@
 // =============================================================================
-// DEMO CALCULATION ONLY
-// Replace with confirmed client business rules before production.
+// Money rules. Every calculation the app makes lives in this folder; screens and
+// the database layer call these functions and never do arithmetic themselves.
+// All amounts are whole paise (see money.ts).
 //
-// Every money rule the prototype uses lives in this file. UI components never
-// calculate interest, allocation or balances themselves; they call these
-// functions. When the client's real rules are confirmed, this module (and only
-// this module) is rewritten.
+// The rules marked ASSUMPTION carry over from the approved prototype and are not
+// yet confirmed by the client. docs/BUSINESS-RULES.md lists them. Change a rule
+// here, with its test in engine.test.ts, and nowhere else.
 // =============================================================================
 
 import { addDays, addMonths, parseISO } from "date-fns";
-import { toISO } from "./format";
-import type { Due, DueStatus, Frequency, InterestSetting, ISODate, Loan, LoanType, Payment, PaymentMethod } from "./types";
+import { toISO } from "../format";
+import type { Due, DueStatus, Frequency, InterestSetting, ISODate, Loan, LoanType, Payment, PaymentMethod } from "../types";
+import { isPaise, percentOf, type Paise } from "./money";
+
+export type FinanceErrorCode =
+  | "LOAN_MISMATCH"
+  | "DUE_MISMATCH"
+  | "LOAN_CLOSED"
+  | "INVALID_AMOUNT"
+  | "ZERO_AMOUNT"
+  | "FUTURE_DATE"
+  | "BEFORE_LOAN_START"
+  | "PRINCIPAL_TOO_LARGE"
+  | "INTEREST_TOO_LARGE";
+
+/** A payment that must not be recorded. `message` is safe to show to the user. */
+export class FinanceError extends Error {
+  constructor(
+    public code: FinanceErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "FinanceError";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Schedule
 // ---------------------------------------------------------------------------
 
-/** DEMO: next collection date = previous date + one period. */
-export function nextDueDate(from: ISODate, freq: Frequency): ISODate {
+const PERIOD_DAYS: Record<Exclude<Frequency, "monthly">, number> = { weekly: 7, "15days": 15, "30days": 30, custom: 30 };
+
+/** ASSUMPTION: next collection date = previous date + one period ("custom" = 30 days). */
+export function nextDueDate(from: ISODate, freq: Frequency, periods = 1): ISODate {
   const d = parseISO(from);
-  switch (freq) {
-    case "weekly":
-      return toISO(addDays(d, 7));
-    case "15days":
-      return toISO(addDays(d, 15));
-    case "30days":
-    case "custom":
-      return toISO(addDays(d, 30));
-    case "monthly":
-      return toISO(addMonths(d, 1));
-  }
+  return toISO(freq === "monthly" ? addMonths(d, periods) : addDays(d, PERIOD_DAYS[freq] * periods));
 }
 
-/** DEMO: step a date back by `n` periods (used only to build demo history). */
-export function previousDueDate(from: ISODate, freq: Frequency, n = 1): ISODate {
-  const d = parseISO(from);
-  switch (freq) {
-    case "weekly":
-      return toISO(addDays(d, -7 * n));
-    case "15days":
-      return toISO(addDays(d, -15 * n));
-    case "30days":
-    case "custom":
-      return toISO(addDays(d, -30 * n));
-    case "monthly":
-      return toISO(addMonths(d, -n));
-  }
-}
+/** Step a date back by `n` periods (used only to build demo history). */
+export const previousDueDate = (from: ISODate, freq: Frequency, n = 1): ISODate => nextDueDate(from, freq, -n);
 
 // ---------------------------------------------------------------------------
 // Interest
 // ---------------------------------------------------------------------------
 
 /**
- * DEMO: interest for one collection period.
- * - percent + reducing  -> % of principal left
- * - percent + fixed     -> % of original amount
- * - fixed amount        -> the fixed rupee value
- * - custom / manual     -> the entered value, treated as rupees
+ * ASSUMPTION: interest for one collection period.
+ * - percent, on balance -> % of principal left
+ * - percent, flat       -> % of the original loan amount
+ * - fixed amount        -> that amount
+ * - custom / manual     -> the entered amount
  */
-export function periodInterest(loan: Pick<Loan, "interest" | "amount" | "principalLeft">): number {
+export function periodInterest(loan: Pick<Loan, "interest" | "amount" | "principalLeft">): Paise {
   const { style, value, method } = loan.interest;
-  if (style === "percent" && method !== "manual") {
-    const base = method === "fixed" ? loan.amount : loan.principalLeft;
-    return Math.round((base * value) / 100);
-  }
-  return Math.round(value);
+  if (style === "percent" && method !== "manual") return percentOf(method === "fixed" ? loan.amount : loan.principalLeft, value);
+  return value;
 }
 
-/** DEMO: build the next expected collection for a loan. */
+/** The next expected collection for a loan. */
 export function buildDue(loan: Loan, dueDate: ISODate, id: string): Due {
   return {
     id,
@@ -77,6 +76,7 @@ export function buildDue(loan: Loan, dueDate: ISODate, id: string): Due {
     interestAmount: periodInterest(loan),
     principalAmount: Math.min(loan.principalPerDue, loan.principalLeft),
     paid: 0,
+    interestPaid: 0,
   };
 }
 
@@ -85,10 +85,14 @@ export function buildDue(loan: Loan, dueDate: ISODate, id: string): Due {
 // ---------------------------------------------------------------------------
 
 export const dueTotal = (d: Due) => d.interestAmount + d.principalAmount;
-export const dueRemaining = (d: Due) => Math.max(0, dueTotal(d) - d.paid);
+/** Still to pay on a collection. Amounts written off when a loan was settled do not count. */
+export const dueRemaining = (d: Due) => Math.max(0, dueTotal(d) - d.paid - (d.waived ?? 0));
 /** Interest already paid on a due. Older records without the split: interest counts first. */
 export const dueInterestPaid = (d: Due) => d.interestPaid ?? Math.min(d.interestAmount, d.paid);
-export const dueInterestLeft = (d: Due) => Math.max(0, d.interestAmount - dueInterestPaid(d));
+export const dueInterestLeft = (d: Due) => (dueRemaining(d) === 0 ? 0 : Math.max(0, d.interestAmount - dueInterestPaid(d)));
+const duePrincipalPaid = (d: Due) => d.paid - dueInterestPaid(d);
+/** Principal part of a due that has not been paid yet. */
+const duePrincipalLeft = (d: Due) => (dueRemaining(d) === 0 ? 0 : Math.max(0, d.principalAmount - duePrincipalPaid(d)));
 
 export function dueStatus(d: Due, today: ISODate): DueStatus {
   if (dueRemaining(d) <= 0) return "paid";
@@ -98,38 +102,46 @@ export function dueStatus(d: Due, today: ISODate): DueStatus {
   return "pending";
 }
 
+/** The earliest due that still has money pending. */
+export function openDue(loanDues: Due[]): Due | undefined {
+  return loanDues
+    .filter((d) => !d.cancelled && dueRemaining(d) > 0)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+}
+
 // ---------------------------------------------------------------------------
 // Receiving money
 // ---------------------------------------------------------------------------
 
 export interface Allocation {
-  interest: number;
-  principal: number;
-  other: number;
+  interest: Paise;
+  principal: Paise;
+  other: Paise;
 }
 
-/** DEMO: split a received amount -> interest due first, then principal, rest as other. */
-export function suggestAllocation(amount: number, loan: Loan, due: Due | undefined): Allocation {
-  const amt = Math.max(0, Math.round(amount || 0));
+/** ASSUMPTION: split a received amount -> interest due first, then principal, rest as other. */
+export function suggestAllocation(amount: Paise, loan: Loan, due: Due | undefined): Allocation {
+  const amt = isPaise(amount) ? amount : 0;
   const interest = Math.min(amt, due ? dueInterestLeft(due) : 0);
   const principal = Math.min(amt - interest, loan.principalLeft);
   return { interest, principal, other: amt - interest - principal };
 }
 
-/** DEMO: amount needed to close the loan today = interest due + all principal left. */
-export function settlementAmount(loan: Loan, due: Due | undefined): number {
+/** ASSUMPTION: amount needed to close the loan today = interest due + all principal left. */
+export function settlementAmount(loan: Loan, due: Due | undefined): Paise {
   return (due ? dueInterestLeft(due) : 0) + loan.principalLeft;
 }
 
 export interface PaymentInput {
   loanId: string;
   dueId?: string;
+  /** When the customer actually paid. */
   date: ISODate;
-  /** Defaults to the payment date (i.e. entered on the day it was paid). */
+  /** When it was entered. Defaults to today. */
   recordedOn?: ISODate;
-  interest: number;
-  principal: number;
-  other: number;
+  interest: Paise;
+  principal: Paise;
+  other: Paise;
   method: PaymentMethod;
   note?: string;
 }
@@ -143,30 +155,44 @@ export interface PaymentResult {
 }
 
 /**
- * DEMO: apply a received payment to a loan.
- * - interest + principal count towards the current due
- * - principal reduces principal left
- * - a fully paid due creates the next due (+1 period)
- * - principal reaching zero closes the loan
+ * Apply a received payment to a loan. Pure: returns new objects, changes nothing passed in.
+ * Throws FinanceError when the payment must not be recorded.
+ *
+ * - interest pays the interest of the current collection
+ * - principal reduces the principal left (and the collection's principal part, if it has one)
+ * - a fully paid collection opens the next one (+1 period)
+ * - principal reaching zero closes the loan; interest left unpaid at that point is written
+ *   off against the collection (`waived`), never counted as received
  */
 export function applyPayment(
   loan: Loan,
   loanDues: Due[],
   input: PaymentInput,
   ids: { paymentId: string; nextDueId: string },
+  today: ISODate,
 ): PaymentResult {
+  if (input.loanId !== loan.id) throw new FinanceError("LOAN_MISMATCH", "This payment is for a different loan.");
+  if (loanDues.some((d) => d.loanId !== loan.id)) throw new FinanceError("DUE_MISMATCH", "This collection belongs to a different loan.");
+  if (loan.status !== "active") throw new FinanceError("LOAN_CLOSED", "This loan is closed. No more payments can be added.");
+  if (![input.interest, input.principal, input.other].every(isPaise)) throw new FinanceError("INVALID_AMOUNT", "Enter a valid amount.");
+  if (input.interest + input.principal + input.other === 0) throw new FinanceError("ZERO_AMOUNT", "Enter the amount received.");
+  if (input.date > today) throw new FinanceError("FUTURE_DATE", "The payment date cannot be in the future.");
+  if (input.date < loan.startDate) throw new FinanceError("BEFORE_LOAN_START", "The payment date is before the loan was given.");
+  if (input.principal > loan.principalLeft) throw new FinanceError("PRINCIPAL_TOO_LARGE", "This is more than the principal left on the loan.");
+
   const dues = loanDues.map((d) => ({ ...d }));
   const due = dues.find((d) => d.id === input.dueId) ?? openDue(dues);
+  if (input.interest > (due ? dueInterestLeft(due) : 0))
+    throw new FinanceError("INTEREST_TOO_LARGE", "This is more than the interest due. Put the extra under Other.");
 
-  const principalLeft = Math.max(0, loan.principalLeft - input.principal);
+  const principalLeft = loan.principalLeft - input.principal;
   const updatedLoan: Loan = { ...loan, principalLeft };
 
   if (due) {
-    // DEMO: interest pays the due's interest; principal only counts towards the due's
-    // scheduled principal part. Extra principal reduces the balance without "paying"
-    // the interest that is still owed.
-    const interestPaid = Math.min(due.interestAmount, dueInterestPaid(due) + input.interest);
-    const principalPaid = Math.min(due.principalAmount, due.paid - dueInterestPaid(due) + input.principal);
+    // Principal only counts towards the collection's own principal part. Extra principal
+    // reduces the balance without "paying" interest that is still owed.
+    const interestPaid = dueInterestPaid(due) + input.interest;
+    const principalPaid = Math.min(due.principalAmount, duePrincipalPaid(due) + input.principal);
     due.interestPaid = interestPaid;
     due.paid = interestPaid + principalPaid;
     if (input.interest + input.principal > 0) due.lastPaidDate = input.date;
@@ -177,7 +203,7 @@ export function applyPayment(
     loanId: loan.id,
     customerId: loan.customerId,
     date: input.date,
-    recordedOn: input.recordedOn ?? input.date,
+    recordedOn: input.recordedOn ?? today,
     principalBefore: loan.principalLeft,
     interest: input.interest,
     principal: input.principal,
@@ -191,10 +217,10 @@ export function applyPayment(
     updatedLoan.status = "closed";
     updatedLoan.closedDate = input.date;
     // Security stays HELD ("pending release") until the owner hands it back.
-    for (const d of dues) if (dueRemaining(d) > 0 && d !== due) d.cancelled = true;
-    if (due && dueRemaining(due) > 0) {
-      due.interestPaid = due.interestAmount; // settled in full
-      due.paid = dueTotal(due);
+    for (const d of dues) {
+      if (dueRemaining(d) === 0) continue;
+      if (d === due) d.waived = (d.waived ?? 0) + dueRemaining(d);
+      else d.cancelled = true;
     }
     return { loan: updatedLoan, dues, payment, closed: true };
   }
@@ -208,18 +234,12 @@ export function applyPayment(
   return { loan: updatedLoan, dues, payment, closed: false, nextDue };
 }
 
-/** The earliest due that still has money pending. */
-export function openDue(loanDues: Due[]): Due | undefined {
-  return loanDues
-    .filter((d) => !d.cancelled && dueRemaining(d) > 0)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
-}
-
-/** Principal part of a due that has not been paid yet. */
-const duePrincipalLeft = (d: Due) => Math.max(0, d.principalAmount - (d.paid - dueInterestPaid(d)));
+// ---------------------------------------------------------------------------
+// What is still to come
+// ---------------------------------------------------------------------------
 
 /**
- * DEMO: expected future collections for a running loan, after its current open due.
+ * Expected future collections for a running loan, after its current open due.
  * Walks the schedule one period at a time: interest by the loan's setting on the balance
  * at that point, principal by "principal with each collection". It stops at `until`, after
  * `limit` rows, or when the principal reaches zero (an instalment loan ends; an
@@ -244,10 +264,10 @@ export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit =
 
 export interface ScheduleRow {
   date: ISODate;
-  interest: number;
-  principal: number;
+  interest: Paise;
+  principal: Paise;
   /** Principal left once this collection is paid. */
-  balanceAfter: number;
+  balanceAfter: Paise;
 }
 
 export interface LoanSchedule {
@@ -256,12 +276,12 @@ export interface LoanSchedule {
   interestOnly: boolean;
   /** Date of the last collection, for loans that repay principal with each collection. */
   endsOn?: ISODate;
-  totalToCollect: number;
-  totalInterest: number;
+  totalToCollect: Paise;
+  totalInterest: Paise;
 }
 
 /**
- * DEMO: what is still to come on a loan. Instalment loans list every collection up to the
+ * What is still to come on a loan. Instalment loans list every collection up to the
  * last one; interest-only loans list the next few interest dates.
  */
 export function loanSchedule(loan: Loan, loanDues: Due[], interestOnlyRows = 3): LoanSchedule | null {
@@ -286,20 +306,20 @@ export function loanSchedule(loan: Loan, loanDues: Due[], interestOnlyRows = 3):
 }
 
 // ---------------------------------------------------------------------------
-// Totals
+// Totals and defaults
 // ---------------------------------------------------------------------------
 
 export const paymentTotal = (p: Pick<Payment, "interest" | "principal" | "other">) => p.interest + p.principal + p.other;
 
-/** DEMO: sensible starting values when a loan type is picked in the New Loan wizard. */
-export function demoLoanDefaults(type: LoanType, amount: number): {
+/** Starting values when a loan type is picked in the New Loan wizard. The user can change them. */
+export function loanDefaults(type: LoanType, amount: Paise): {
   frequency: Frequency;
   interest: InterestSetting;
-  principalPerDue: number;
+  principalPerDue: Paise;
 } {
   switch (type) {
     case "weekly":
-      return { frequency: "weekly", interest: { style: "fixed", value: Math.round(amount * 0.025), method: "fixed" }, principalPerDue: 0 };
+      return { frequency: "weekly", interest: { style: "fixed", value: percentOf(amount, 2.5), method: "fixed" }, principalPerDue: 0 };
     case "15day":
       return { frequency: "15days", interest: { style: "percent", value: 2, method: "fixed" }, principalPerDue: 0 };
     case "30day":
@@ -315,7 +335,7 @@ export function demoLoanDefaults(type: LoanType, amount: number): {
   }
 }
 
-/** DEMO: first collection preview shown in the New Loan review step. */
+/** First collection preview shown in the New Loan review step. */
 export function previewFirstCollection(
   loan: Pick<Loan, "interest" | "amount" | "principalLeft" | "principalPerDue" | "frequency" | "startDate">,
 ) {

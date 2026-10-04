@@ -17,7 +17,7 @@ import {
   suggestAllocation,
   type Allocation,
   type PaymentResult,
-} from "@/lib/demo-calculations";
+} from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, LOAN_TYPE_LABEL, LOAN_TYPE_SHORT, money, shiftISO, todayISO } from "@/lib/format";
 import { customerView, permissions, search, toCollectRows } from "@/lib/selectors";
 import { actions, useAppState } from "@/lib/store";
@@ -183,7 +183,7 @@ function PaymentForm({
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
 
-  // DEMO: how the money is counted in each mode (rules live in demo-calculations).
+  // DEMO: how the money is counted in each mode (rules live in lib/finance/engine).
   let split: Allocation;
   if (mode === "settle") {
     const a = adj || 0;

@@ -6,13 +6,14 @@
 
 import { format } from "date-fns";
 import { useSyncExternalStore } from "react";
-import { applyPayment, buildDue, nextDueDate, type PaymentInput, type PaymentResult } from "./demo-calculations";
+import { applyPayment, buildDue, nextDueDate, type PaymentInput, type PaymentResult } from "./finance/engine";
 import { buildDemoDB, type DemoDB } from "./demo-data";
-import { todayISO } from "./format";
+import { money, todayISO } from "./format";
 import type { Activity, Customer, Due, ISODate, Loan, Role } from "./types";
 import { APP } from "./config";
 
-const STORAGE_KEY = "ledgerpro-demo-v1";
+// v2: amounts are stored in paise.
+const STORAGE_KEY = "ledgerpro-demo-v2";
 
 export interface Session {
   loggedIn: boolean;
@@ -158,7 +159,7 @@ export const actions = {
       const loan = s.loans.find((l) => l.id === input.loanId)!;
       const loanDues = s.dues.filter((d) => d.loanId === loan.id);
       const recordedOn = input.recordedOn ?? todayISO();
-      result = applyPayment(loan, loanDues, { ...input, recordedOn }, { paymentId: uid("P"), nextDueId: uid("D") });
+      result = applyPayment(loan, loanDues, { ...input, recordedOn }, { paymentId: uid("P"), nextDueId: uid("D") }, recordedOn);
       const customer = s.customers.find((c) => c.id === loan.customerId);
       const total = input.interest + input.principal + input.other;
       return {
@@ -168,7 +169,7 @@ export const actions = {
         payments: [...s.payments, result.payment],
         activity: log(
           s,
-          `Received ₹${total.toLocaleString("en-IN")} from ${customer?.name} · ${loan.id}${result.closed ? " · Loan closed" : ""}${input.date < recordedOn ? ` · backdated to ${input.date}` : ""}`,
+          `Received ${money(total)} from ${customer?.name} · ${loan.id}${result.closed ? " · Loan closed" : ""}${input.date < recordedOn ? ` · backdated to ${input.date}` : ""}`,
           "payment",
         ),
       };
@@ -218,7 +219,7 @@ export const actions = {
       ...st,
       loans: [...st.loans, loan],
       dues: [...st.dues, firstDue],
-      activity: log(st, `New loan ${loan.id} · ₹${loan.amount.toLocaleString("en-IN")} given to ${customer?.name}`, "loan"),
+      activity: log(st, `New loan ${loan.id} · ${money(loan.amount)} given to ${customer?.name}`, "loan"),
     }));
     return loan;
   },

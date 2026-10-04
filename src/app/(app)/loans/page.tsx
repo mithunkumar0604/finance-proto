@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { HEALTH_META } from "@/components/loans/loan-card";
 import { Avatar, Card, Chip, EmptyState, FilterChips, Segmented } from "@/components/ui/bits";
 import { LinkButton } from "@/components/ui/button";
-import { dueRemaining } from "@/lib/demo-calculations";
+import { dueRemaining } from "@/lib/finance/engine";
 import { dRelative, LOAN_TYPE_SHORT, money, todayISO } from "@/lib/format";
 import { loanView, permissions, TYPE_GROUPS } from "@/lib/selectors";
 import { useAppState } from "@/lib/store";

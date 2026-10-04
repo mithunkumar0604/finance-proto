@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { DecimalInput, Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
-import { dueRemaining, loanSchedule } from "@/lib/demo-calculations";
+import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { loanView, permissions } from "@/lib/selectors";
 import { actions, useAppState } from "@/lib/store";

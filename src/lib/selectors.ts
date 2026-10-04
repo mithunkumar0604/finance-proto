@@ -1,7 +1,7 @@
 // Read-only views derived from the store. Screens use these instead of
 // filtering raw arrays themselves.
 
-import { dueRemaining, dueStatus, dueTotal, openDue, paymentTotal } from "./demo-calculations";
+import { dueRemaining, dueStatus, dueTotal, openDue, paymentTotal } from "./finance/engine";
 import { daysBetween, shiftISO } from "./format";
 import type { AppState } from "./store";
 import type { Customer, Due, DueStatus, ISODate, Loan, LoanType, Role } from "./types";

@@ -3,20 +3,29 @@ import type { Frequency, ISODate, Loan, LoanType, PaymentMethod } from "./types"
 
 const inr = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
-/** ₹1,42,500 */
+/** Paise as plain digits with Indian grouping: 14250000 -> "1,42,500", 600050 -> "6,000.50". No float maths. */
+export function rupeeDigits(paise: number): string {
+  const a = Math.abs(Math.round(paise));
+  const frac = a % 100;
+  return inr.format((a - frac) / 100) + (frac ? `.${String(frac).padStart(2, "0")}` : "");
+}
+
+/** ₹1,42,500 (amounts are whole paise; paise are shown only when there are any) */
 export function money(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}₹${inr.format(Math.round(Math.abs(n)))}`;
+  if (!Number.isFinite(n)) return "₹0";
+  return `${n < 0 ? "-" : ""}₹${rupeeDigits(n)}`;
 }
 
 /** ₹1.73 Cr · ₹3.8 L · ₹42.5K */
-export function moneyShort(n: number): string {
+export function moneyShort(paise: number): string {
+  if (!Number.isFinite(paise)) return "₹0";
+  const n = paise / 100;
   const a = Math.abs(n);
   const trim = (v: number, d: number) => v.toFixed(d).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
   if (a >= 1e7) return `₹${trim(n / 1e7, 2)} Cr`;
   if (a >= 1e5) return `₹${trim(n / 1e5, 1)} L`;
   if (a >= 1e3) return `₹${trim(n / 1e3, 1)}K`;
-  return money(n);
+  return money(paise);
 }
 
 export function phoneFmt(p: string): string {

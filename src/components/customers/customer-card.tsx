@@ -3,7 +3,7 @@
 import { Car, FileText, Gem, MapPin, Phone } from "lucide-react";
 import Link from "next/link";
 import { Avatar, Chip } from "@/components/ui/bits";
-import { dueRemaining } from "@/lib/demo-calculations";
+import { dueRemaining } from "@/lib/finance/engine";
 import { dRelative, money, phoneFmt } from "@/lib/format";
 import type { customerView } from "@/lib/selectors";
 import type { Customer } from "@/lib/types";

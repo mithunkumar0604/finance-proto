@@ -1,6 +1,7 @@
 "use client";
 
 import { clsx } from "clsx";
+import { rupeeDigits } from "@/lib/format";
 import { useState, type ComponentProps, type ReactNode } from "react";
 
 /** Labelled form row. Use `group` when the content is a set of buttons, so taps on the label don't trigger the first button. */
@@ -47,7 +48,8 @@ export function MoneyInput({
   placeholder?: string;
   id?: string;
 }) {
-  const display = value === "" ? "" : new Intl.NumberFormat("en-IN").format(value);
+  // `value` is in paise. People type whole rupees; any paise already on the amount are shown.
+  const display = value === "" ? "" : rupeeDigits(value);
   return (
     <div
       className={clsx(
@@ -64,8 +66,8 @@ export function MoneyInput({
         placeholder={placeholder}
         value={display}
         onChange={(e) => {
-          const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
-          onChange(digits === "" ? "" : Number(digits));
+          const digits = e.target.value.replace(/\.\d*$/, "").replace(/\D/g, "").slice(0, 10);
+          onChange(digits === "" ? "" : Number(digits) * 100);
         }}
         className={clsx(
           "num w-full min-w-0 bg-transparent font-bold text-ink outline-none placeholder:text-faint",

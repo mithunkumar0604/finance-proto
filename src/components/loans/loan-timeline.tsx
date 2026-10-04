@@ -2,7 +2,7 @@
 
 import { clsx } from "clsx";
 import { useState, type ReactNode } from "react";
-import type { LoanSchedule } from "@/lib/demo-calculations";
+import type { LoanSchedule } from "@/lib/finance/engine";
 import { dLong, dShort, METHOD_LABEL, money } from "@/lib/format";
 import type { Loan, Payment } from "@/lib/types";
 

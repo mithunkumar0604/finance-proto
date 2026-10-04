@@ -3,7 +3,7 @@
 import { Car, ChevronRight, FileText, Gem } from "lucide-react";
 import Link from "next/link";
 import { Chip, type ChipTone } from "@/components/ui/bits";
-import { dueRemaining } from "@/lib/demo-calculations";
+import { dueRemaining } from "@/lib/finance/engine";
 import { dLong, dRelative, LOAN_TYPE_LABEL, money } from "@/lib/format";
 import type { LoanHealth, loanView } from "@/lib/selectors";
 import type { Loan, Security } from "@/lib/types";

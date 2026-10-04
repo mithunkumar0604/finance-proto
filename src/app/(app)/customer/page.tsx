@@ -10,7 +10,7 @@ import { Avatar, Card, Chip, EmptyState, Segmented, Skeleton } from "@/component
 import { Button, buttonClass, LinkButton } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
-import { paymentTotal } from "@/lib/demo-calculations";
+import { paymentTotal } from "@/lib/finance/engine";
 import { dLong, dShort, METHOD_LABEL, money, phoneFmt, todayISO } from "@/lib/format";
 import { customerView, permissions } from "@/lib/selectors";
 import { actions, useAppState } from "@/lib/store";

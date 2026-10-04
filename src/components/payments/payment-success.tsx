@@ -6,7 +6,7 @@ import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Chip, Row } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { dueInterestLeft, dueRemaining, paymentTotal, type PaymentResult } from "@/lib/demo-calculations";
+import { dueInterestLeft, dueRemaining, paymentTotal, type PaymentResult } from "@/lib/finance/engine";
 import { dLong, dShort, money } from "@/lib/format";
 import { useAppState } from "@/lib/store";
 

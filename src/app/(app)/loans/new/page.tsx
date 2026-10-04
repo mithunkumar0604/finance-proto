@@ -28,8 +28,9 @@ import { securityLabel } from "@/components/loans/loan-card";
 import { Avatar, Card, Row, Skeleton } from "@/components/ui/bits";
 import { Button, LinkButton } from "@/components/ui/button";
 import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
-import { demoLoanDefaults, previewFirstCollection } from "@/lib/demo-calculations";
+import { loanDefaults, previewFirstCollection } from "@/lib/finance/engine";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
+import { rupees } from "@/lib/finance/money";
 import { actions, useAppState } from "@/lib/store";
 import type { Frequency, InterestSetting, Loan, LoanType } from "@/lib/types";
 
@@ -78,7 +79,7 @@ function Wizard() {
 
   const pickType = (t: LoanType, forAmount = amount) => {
     setType(t);
-    const d = demoLoanDefaults(t, forAmount || 0);
+    const d = loanDefaults(t, forAmount || 0);
     setFrequency(d.frequency);
     setInterest(d.interest);
     setPrincipalPerDue(d.principalPerDue || "");
@@ -86,7 +87,7 @@ function Wizard() {
     else if (t === "jewel") setSecKind("jewel");
   };
 
-  // Amount changed after a type was picked: refresh that type's demo defaults.
+  // Amount changed after a type was picked: refresh that type's starting values.
   const changeAmount = (a: number | "") => {
     setAmount(a);
     if (type) pickType(type, a);
@@ -204,7 +205,7 @@ function Wizard() {
               <MoneyInput size="xl" value={amount} onChange={changeAmount} autoFocus />
             </Field>
             <div className="mt-3 flex flex-wrap gap-2">
-              {[25000, 50000, 100000, 200000, 500000].map((a) => (
+              {[25000, 50000, 100000, 200000, 500000].map(rupees).map((a) => (
                 <button key={a} type="button" onClick={() => changeAmount(a)} className={clsx("num h-10 rounded-full border px-4 text-sm font-semibold", amount === a ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-2")}>
                   {moneyShort(a)}
                 </button>
