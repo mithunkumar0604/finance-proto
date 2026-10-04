@@ -26,6 +26,8 @@ export interface Permissions {
   seeTotals: boolean;
   seeReports: boolean;
   receive: boolean;
+  /** Write off pending interest (owner only; the database enforces it). */
+  waive: boolean;
   createLoan: boolean;
   addCustomer: boolean;
   /** Collector sees only their assigned customers. */
@@ -45,10 +47,10 @@ export function permissions(s: AppState): Permissions {
   // LIVE: the database already returns only this collector's customers; this keeps the screens in step.
   const collectorId = LIVE ? s.session.userId : COLLECTOR_ID;
   if (role === "collector")
-    return { role, seeTotals: false, seeReports: false, receive: true, createLoan: false, addCustomer: false, customerScope: (c) => c.collectorId === collectorId };
+    return { role, seeTotals: false, seeReports: false, receive: true, waive: false, createLoan: false, addCustomer: false, customerScope: (c) => c.collectorId === collectorId };
   if (role === "staff")
-    return { role, seeTotals: false, seeReports: false, receive: false, createLoan: false, addCustomer: true, customerScope: () => true };
-  return { role, seeTotals: true, seeReports: true, receive: true, createLoan: true, addCustomer: true, customerScope: () => true };
+    return { role, seeTotals: false, seeReports: false, receive: false, waive: false, createLoan: false, addCustomer: true, customerScope: () => true };
+  return { role, seeTotals: true, seeReports: true, receive: true, waive: true, createLoan: true, addCustomer: true, customerScope: () => true };
 }
 
 /** Name and initials for the profile badge. The demo always shows the owner, as designed. */

@@ -62,6 +62,7 @@ npm run dev                 # sign in as 98000 12345 (owner)
 | `npm run test:db` | Database tests: payment scenarios, duplicates, reversal, roles, files (needs `npx supabase start`) |
 | `npm run test:e2e` | Browser tests of the critical flows against a local database (resets and seeds it) |
 | `npm run seed:local` | Fill an empty local database with the demo book |
+| `npm run import -- file.csv` | Check an import file of existing customers and loans (`--apply` to save). See [IMPORT.md](IMPORT.md) |
 
 `E2E_CLOUDFLARE=1 npm run test:e2e` runs the browser tests on Cloudflare's own Pages
 runtime, with the production security headers.
@@ -86,6 +87,7 @@ runtime, with the production security headers.
 - Deploying and first-time setup: [DEPLOYMENT.md](DEPLOYMENT.md)
 - Settings and secrets: [ENVIRONMENT.md](ENVIRONMENT.md)
 - Backups and how to restore: [BACKUP_RESTORE.md](BACKUP_RESTORE.md)
+- Importing existing customers and loans: [IMPORT.md](IMPORT.md)
 
 ## Roles
 
@@ -95,6 +97,8 @@ runtime, with the production security headers.
 | Take payments, move a date | yes | their own customers | no |
 | Give a loan, edit a loan, release security | yes | no | no |
 | Add / edit customers | yes | no | yes |
+| Choose which pending months a payment covers | yes | their own customers | no |
+| Waive interest (reason required) | yes | no | no |
 | Reports, activity log, reverse a payment, manage users | yes | no | no |
 
 ## Demo data notes

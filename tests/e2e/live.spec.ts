@@ -271,6 +271,66 @@ test("typing more principal than is owed is refused, not trimmed", async ({ page
   expect(await paymentsOf("LP-1175")).toHaveLength(0);
 });
 
+test("missed months: each stays pending, the owner ticks what a payment covers, and can waive with a reason", async ({ page }) => {
+  await signInOwner(page);
+  await openLoan(page, "LP-1057"); // 3,00,000 at 3% a month, 65 days overdue
+  const open = async () => (await admin.from("dues").select("id,due_date,interest_amount,interest_paid,waived,remaining").eq("loan_id", "LP-1057").eq("cancelled", false).gt("remaining", 0).order("due_date")).data!;
+  const before = await open();
+  expect(before.length).toBeGreaterThanOrEqual(4); // three missed and the one running
+  expect(before.every((d) => d.interest_amount === 900000)).toBe(true);
+
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  const dialog = page.getByRole("dialog");
+  const rows = dialog.locator("label:has(input[type=checkbox])");
+  await expect(rows).toHaveCount(before.length);
+  await expect(dialog).toContainText("Total Pending");
+  // every missed month is ticked to start with; the running one is not
+  await expect(rows.nth(0).locator("input")).toBeChecked();
+  await expect(rows.last().locator("input")).not.toBeChecked();
+
+  // pay the later two missed months only: untick the oldest
+  await rows.nth(0).locator("input").uncheck();
+  await expect(dialog.getByRole("button", { name: /Confirm Payment/ })).toContainText("₹18,000");
+  await confirmAndFinish(page);
+
+  const after = await open();
+  expect(after[0]).toMatchObject({ id: before[0].id, interest_paid: 0, remaining: 900000 }); // the oldest is still pending
+  expect(after.map((d) => d.id)).not.toContain(before[1].id);
+  expect(after.map((d) => d.id)).not.toContain(before[2].id);
+  const [pay] = await paymentsOf("LP-1057");
+  expect(pay).toMatchObject({ interest: 1800000, principal: 0 });
+  const allocs = (await admin.from("payment_allocations").select("due_id,interest").eq("payment_id", pay.id)).data!;
+  expect(allocs.map((a) => a.due_id).sort()).toEqual([before[1].id, before[2].id].sort());
+  expect((await loanRow("LP-1057")).principal_left).toBe(30000000);
+
+  // the owner waives the oldest month: a reason is required, and it is recorded
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Adjustment/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "− Waive interest" }).click();
+  await page.getByRole("dialog").locator("input[inputmode=numeric]").first().fill("9000");
+  await page.getByRole("dialog").getByRole("button", { name: "Confirm Waiver" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "reason" })).toBeVisible();
+  await page.getByPlaceholder("e.g. paid at shop").fill("Shop was shut in July");
+  await page.getByRole("dialog").getByRole("button", { name: "Confirm Waiver" }).click();
+  await expect(page.getByText("Interest waived")).toBeVisible();
+
+  const waivers = (await admin.from("waivers").select("due_id,amount,reason,payment_id").eq("loan_id", "LP-1057")).data!;
+  expect(waivers).toEqual([{ due_id: before[0].id, amount: 900000, reason: "Shop was shut in July", payment_id: null }]);
+  expect((await open()).map((d) => d.id)).not.toContain(before[0].id);
+  expect(await paymentsOf("LP-1057")).toHaveLength(1); // a waiver is never recorded as money received
+});
+
+test("a collector cannot waive interest", async ({ page }) => {
+  await signIn(page, COLLECTOR);
+  await page.waitForURL(/home/);
+  await openLoan(page, "LP-1088"); // Murugan, a customer of this collector, interest overdue
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Adjustment/ }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "− Waive interest" })).toHaveCount(0);
+});
+
 test("new customer and new loan are saved to the database", async ({ page }) => {
   await signInOwner(page);
   await page.goto("/customers/new/");

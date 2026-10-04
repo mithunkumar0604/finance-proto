@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { rupees } from "../../src/lib/finance/money";
-import { accrue, addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
+import { addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
 
 let owner: TestUser;
 let staff: TestUser;

@@ -1,21 +1,45 @@
 # Money rules
 
-How LedgerPro works money out. Every rule here lives in `src/lib/finance/engine.ts`
-and has a test in `src/lib/finance/engine.test.ts`. Two rules (interest for a period,
-the next collection date) are repeated in the database
-(`supabase/migrations/…_functions.sql`, `period_interest` and `next_due_date`) so the
-database can check them; a test compares both sides. **Change a rule in both places.**
+How LedgerPro works money out. Every rule lives in `src/lib/finance/engine.ts` with a
+test beside it. Three rules are repeated in the database so that it can check and
+apply them itself (`period_interest`, `next_due_date`, `accrue_dues` in
+`supabase/migrations`); tests compare both sides. **Change a rule in both places.**
 
 All amounts are whole paise. Nothing is stored or added as a decimal number.
 
 ## Confirmed by the client
 
 - Most customers pay interest only. Principal stays until it is returned.
-- Principal can be returned in part, or in full (which closes the loan).
+- Principal can be returned in part, or in full.
 - A payment has a payment date and a recorded date. Reports use the payment date.
 - "Principal Left" is what matters on screen, not "Principal Paid".
+- **Missed interest (confirmed 4 October 2026).** Interest falls due every period,
+  whether or not the last period was paid. A customer who misses July, August and
+  September owes all three, and each stays pending **on its own** until it is:
+  paid, part-paid, or waived by the owner. Paying a newer month never clears an
+  older one.
+- **The owner decides what a payment covers:** all pending months, one, some, part of
+  one, principal only, principal with chosen months, or any custom amount.
+- **Interest is never cleared automatically.** It can only be paid, or waived by the
+  owner with a reason. Every waiver is recorded (who, when, which month, how much, why).
 
-## Assumptions carried over from the approved prototype — NOT yet confirmed
+## How that works in the app
+
+- A loan has one **collection** per period. When the app opens, the database adds a
+  collection for every period that has started since the last one (`accrue_dues`).
+- Receive Payment lists the pending periods with a tick box each. The periods already
+  due are ticked to start with; the one still running is not.
+- An amount typed with no choice made goes to the oldest pending period first.
+- Interest goes only to ticked periods. Money beyond their interest is counted as
+  principal (as in the approved prototype), and shown before Confirm.
+- Returning all the principal while interest is pending does **not** close the loan.
+  It stays open, with no further interest added, until the pending interest is
+  collected or waived. Full Settlement does both in one step: collect what is paid,
+  waive the rest with a reason.
+- Waiving: the owner only. Full Settlement → "− Waive", or More options → Adjustment →
+  "− Waive interest". The reason goes in Notes and is required.
+
+## Assumptions — NOT yet confirmed by the client
 
 | # | Rule | Where |
 |---|---|---|
@@ -23,36 +47,19 @@ All amounts are whole paise. Nothing is stored or added as a decimal number.
 | A2 | "On balance" interest is a percentage of the principal left; "flat" is a percentage of the amount first given. | `periodInterest` |
 | A3 | A collection falls due one period after the last one: 7, 15 or 30 days, or one month. "Custom" means 30 days. | `nextDueDate` |
 | A4 | Monthly loans keep to the day of the month the loan was given (31 Jan → 28 Feb → 31 Mar). | `nextDueDate` |
-| A5 | Money received is counted as interest first, then principal; anything over goes to "Other". | `suggestAllocation` |
-| A6 | To settle a loan: interest due on the open collection + all principal left. | `settlementAmount` |
-| A7 | Interest left unpaid when a loan is settled is written off (recorded as "waived", never as received) and shown in the activity log. | `applyPayment` |
-| A8 | While principal is owed, a period's interest is never less than ₹1. | `periodInterest` |
-| A9 | A loan cannot be closed on a date before its latest payment. | `applyPayment` |
-| A10 | **The next collection opens only when the current one is fully paid.** | `applyPayment` |
+| A5 | While principal is owed, a period's interest is never less than ₹1. | `periodInterest` |
+| A6 | A loan cannot be closed on a date before its latest payment. | `applyPayment` |
+| A7 | **A missed period's interest is worked out on the principal owed when that period's collection is added**, and is not changed afterwards. Returning principal lowers the interest of later periods only. | `accrueDues` |
+| A8 | **No interest on interest, and no late fee.** A missed month stays at its own amount however late it is paid. A late fee can be taken by hand as an Adjustment. | — |
+| A9 | **At settlement, a period that has begun is owed in full**; a period that had not begun by the payment date is not owed and is dropped. (Loan given on the 1st: settle on the 20th and that month's interest is pending; settle on the collection day and nothing further is.) No part-month interest. | `applyPayment` |
+| A10 | An instalment loan (principal with each collection) that falls behind keeps charging interest each period, even past its planned end date, until the principal is returned. | `accrueDues` |
+| A11 | A collector can choose which periods a payment covers, but cannot waive. | database |
 
-## Open question that changes amounts — needs the client's answer
+## Questions for the client
 
-**A10: what does a customer owe after missing whole periods?**
-
-Today: a loan of ₹1,00,000 at 3% a month whose July interest is unpaid shows ₹3,000
-pending in October, and can be settled for ₹1,03,000. The August and September
-interest is never asked for, because a new collection opens only after the previous
-one is paid.
-
-The other reading: interest falls due every period whether or not the last one was
-paid, so in October the customer owes ₹9,000 interest and settles for ₹1,09,000.
-
-This is the approved prototype's behaviour and it has not been changed, because
-guessing either way changes what customers are asked to pay. It also decides two
-smaller things: whether one payment can cover several months of interest, and
-whether an instalment loan keeps charging interest while an instalment is unpaid.
-
-## Other questions for the client
-
+- A7–A10 above: are these right?
 - Do short-term loans have an agreed return date? (An optional "loan period".)
 - "Manual" interest: should the owner be able to type any interest amount each time?
-  Today the amount collected as interest cannot be more than the interest due; extra
-  goes under Adjustment.
-- Who may write off interest at settlement: the owner only, or collectors too?
-  Today anyone who can take a payment can, and it is logged for the owner.
+  Today interest collected for a period cannot be more than that period's interest;
+  extra goes under Adjustment.
 - Who may move a collection date, and how far? Today: owner and collectors, up to a year.

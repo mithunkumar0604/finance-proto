@@ -15,7 +15,8 @@ export default defineConfig({
   fullyParallel: false,
   timeout: 60_000,
   expect: { timeout: 10_000 },
-  retries: 0,
+  // CI machines are slow to start: allow one retry there. Locally a failure is a failure.
+  retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,

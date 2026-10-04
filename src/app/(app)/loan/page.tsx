@@ -126,7 +126,7 @@ function LoanDetails() {
           {/* Actions */}
           {active && (
             <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
-              <Button size="lg" className="col-span-2 md:col-span-1" disabled={!perm.receive} onClick={() => ui.openPayment(loan.id, { dueId: v.next?.id })}>
+              <Button size="lg" className="col-span-2 md:col-span-1" disabled={!perm.receive} onClick={() => ui.openPayment(loan.id)}>
                 <HandCoins className="size-5" /> Receive Payment
               </Button>
               <Button variant="secondary" size="lg" disabled={!perm.createLoan} onClick={() => setEditing(true)}>

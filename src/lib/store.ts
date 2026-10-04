@@ -12,7 +12,7 @@
 
 import { format } from "date-fns";
 import { useSyncExternalStore } from "react";
-import { applyPayment, buildDue, nextDueDate, type PaymentInput, type PaymentResult } from "./finance/engine";
+import { accrueDues, applyPayment, applyWaiver, buildDue, nextDueDate, openDue, type InterestPick, type PaymentInput, type PaymentResult } from "./finance/engine";
 import { buildDemoDB, type DemoDB } from "./demo-data";
 import { money, todayISO } from "./format";
 import type { Activity, AppUser, Customer, Due, ISODate, Loan, Role } from "./types";
@@ -23,8 +23,8 @@ import { LIVE, setRemember } from "./data/supabase";
 
 export { LIVE };
 
-// v2: amounts are stored in paise.
-const STORAGE_KEY = "ledgerpro-demo-v2";
+// v3: amounts in paise; every missed period is its own collection.
+const STORAGE_KEY = "ledgerpro-demo-v3";
 /** LIVE mode keeps only this device's settings in the browser, never customer data. */
 const DEVICE_KEY = "ledgerpro-device-v1";
 
@@ -175,6 +175,8 @@ async function boot() {
 
 async function enter(who: remote.SignedIn) {
   const from = defaultHistoryFrom();
+  // Every period that has started since the app was last opened becomes a pending collection.
+  await remote.accrueAll();
   const book = await remote.loadBook(from, who.profile.role === "owner");
   set((s) => ({
     ...s,
@@ -396,11 +398,13 @@ export const actions = {
     const s = getState();
     const loan: Loan = { ...draft, id: nextLoanId(s.loans) };
     const firstDue = buildDue(loan, nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate), uid("D"));
+    // a loan entered with an earlier date: every period since then is pending
+    const loanDues = accrueDues(loan, [firstDue], todayISO(), () => uid("D"));
     const customer = s.customers.find((c) => c.id === loan.customerId);
     set((st) => ({
       ...st,
       loans: [...st.loans, loan],
-      dues: [...st.dues, firstDue],
+      dues: [...st.dues, ...loanDues],
       activity: log(st, `New loan ${loan.id} · ${money(loan.amount)} given to ${customer?.name}`, "loan"),
     }));
     return loan;
@@ -439,6 +443,33 @@ export const actions = {
     }));
   },
 
+  /** Owner: write off pending interest without receiving money. A reason is required. */
+  async waiveInterest(loanId: string, waive: InterestPick[], reason: string): Promise<void> {
+    const s0 = getState();
+    const loan = s0.loans.find((l) => l.id === loanId);
+    if (!loan) throw new AppError("NOT_FOUND", "This loan was not found.");
+    if (s0.session.viewAs !== "owner") throw new AppError("NOT_ALLOWED", "Only the owner can waive interest.");
+    const today = todayISO();
+    // the engine checks it (reason given, nothing waived beyond what is pending) ...
+    const result = applyWaiver(loan, s0.dues.filter((d) => d.loanId === loanId), { waive, reason, date: today }, today);
+    if (LIVE) {
+      // ... and the database checks it again and saves it
+      await remote.waiveInterest(loanId, loan.version ?? 0, waive, reason).catch(async (e) => {
+        if (toAppError(e).code === "CONFLICT") await reloadLoans([loanId]).catch(() => {});
+        throw e;
+      });
+      await reloadLoans([loanId]);
+      refreshActivity();
+      return;
+    }
+    set((s) => ({
+      ...s,
+      loans: s.loans.map((l) => (l.id === loanId ? result.loan : l)),
+      dues: [...s.dues.filter((d) => d.loanId !== loanId), ...result.dues],
+      activity: log(s, `Waived ${money(result.waived)} interest on ${loanId} · ${reason}${result.closed ? " · Loan closed" : ""}`, "payment"),
+    }));
+  },
+
   /** LIVE, owner: undo the latest payment on a loan. The payment stays in the records, marked reversed. */
   async reversePayment(paymentId: string, reason: string): Promise<void> {
     if (!LIVE) throw new AppError("NOT_ALLOWED", "Payments can be reversed only in the live app.");
@@ -456,8 +487,10 @@ export const actions = {
 };
 
 async function receive(input: PaymentInput, key: string): Promise<PaymentResult> {
-  const s = getState();
   const today = todayISO();
+  // The app was left open overnight: a new period may have started. Read everything again first.
+  if (LIVE && getState().seedDate !== today) await boot();
+  const s = getState();
   const loan = s.loans.find((l) => l.id === input.loanId);
   if (!loan) throw new AppError("NOT_FOUND", "This loan was not found.");
   const loanDues = s.dues.filter((d) => d.loanId === loan.id);
@@ -484,38 +517,30 @@ async function receive(input: PaymentInput, key: string): Promise<PaymentResult>
 
   // The engine works the payment out (and refuses it if it is not valid) ...
   const result = applyPayment(loan, loanDues, { ...input, recordedOn: today }, { paymentId: newKey(), nextDueId: newKey() }, today);
+  // ... only collections the database already has are sent; it opens new ones itself.
   const before = new Map(loanDues.map((d) => [d.id, JSON.stringify(d)]));
-  const changed = result.dues.filter((d) => before.get(d.id) !== JSON.stringify(d));
+  const changed = result.dues.filter((d) => before.has(d.id) && before.get(d.id) !== JSON.stringify(d));
 
-  // ... and the database checks it again and saves all of it, or none of it.
+  // The database checks it again and saves all of it, or none of it.
   let saved: remote.SavedPayment;
   try {
-    saved = await remote.recordPayment(key, loan.version ?? 0, result, changed);
+    saved = await remote.recordPayment(key, loan.version ?? 0, result, changed, input.waiveReason);
   } catch (e) {
-    // Someone else changed this loan: show its real state before the user tries again.
-    if (toAppError(e).code === "CONFLICT") await reloadLoans([loan.id]).catch(() => {});
+    // Someone else changed this loan, or a new period began: show its real state before the user tries again.
+    if (["CONFLICT", "MISMATCH"].includes(toAppError(e).code)) await reloadLoans([loan.id]).catch(() => {});
     throw e;
   }
 
-  if (saved.duplicate) {
-    // This press had already been saved (retry after a lost reply): show what the database has.
-    await reloadLoans([loan.id]);
-    const now = getState();
-    return { ...result, loan: now.loans.find((l) => l.id === loan.id) ?? result.loan, dues: now.dues.filter((d) => d.loanId === loan.id) };
-  }
-
-  const savedLoan: Loan = {
-    ...result.loan,
-    version: saved.version,
-    ...(input.interest > 0 && input.date > (loan.lastInterestPaidOn ?? "") ? { lastInterestPaidOn: input.date } : {}),
-  };
-  const payment = { ...result.payment, recordedOn: saved.recordedOn, recordedAt: new Date().toISOString() };
-  set((st) => ({
-    ...st,
-    loans: st.loans.map((l) => (l.id === loan.id ? savedLoan : l)),
-    dues: [...st.dues.filter((d) => d.loanId !== loan.id), ...result.dues],
-    payments: [...st.payments, payment],
-  }));
+  // Read the loan back: the database is the record of what is now pending.
+  await reloadLoans([loan.id]);
   refreshActivity();
-  return { ...result, loan: savedLoan, payment };
+  const now = getState();
+  const dues = now.dues.filter((d) => d.loanId === loan.id);
+  return {
+    ...result,
+    loan: now.loans.find((l) => l.id === loan.id) ?? result.loan,
+    dues,
+    nextDue: openDue(dues),
+    payment: { ...result.payment, recordedOn: saved.recordedOn },
+  };
 }

@@ -31,8 +31,11 @@ export function LoanTimeline({
 }) {
   const [showAll, setShowAll] = useState(false);
   const rows = schedule?.rows ?? [];
-  const shown = showAll ? rows : rows.slice(0, PREVIEW);
+  const missed = rows.filter((r) => r.date < today).length;
+  const shown = showAll ? rows : rows.slice(0, Math.max(PREVIEW, missed + 1));
   const hidden = rows.length - shown.length;
+  // Missed periods come first, each on its own; then the next one to collect.
+  const firstComing = rows.findIndex((r) => r.date >= today);
   const items = payments.reduce<{ p: Payment; after: number }[]>(
     (acc, p) => [...acc, { p, after: (acc.at(-1)?.after ?? loan.amount) - p.principal }],
     [],
@@ -107,19 +110,19 @@ export function LoanTimeline({
           {shown.map((r, n) => {
             const late = r.date < today;
             return (
-              <Item key={r.date + n} dot="border-2 border-dashed border-faint bg-surface" date={dShort(r.date)} year={r.date.slice(0, 4)} muted={n > 0}>
+              <Item key={r.date + n} dot="border-2 border-dashed border-faint bg-surface" date={dShort(r.date)} year={r.date.slice(0, 4)} muted={!late && n !== firstComing}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <p className={clsx("font-semibold", late ? "text-rose-700" : n === 0 ? "text-ink-2" : "text-muted")}>
-                    {n === 0 ? (late ? "Overdue Collection" : "Next Collection") : r.principal > 0 ? "Collection" : "Interest"}
+                  <p className={clsx("font-semibold", late ? "text-rose-700" : n === firstComing ? "text-ink-2" : "text-muted")}>
+                    {late ? "Overdue Collection" : n === firstComing ? "Next Collection" : r.principal > 0 ? "Collection" : "Interest"}
                   </p>
-                  <p className={clsx("num font-bold", n === 0 ? "text-ink-2" : "text-muted")}>{money(r.interest + r.principal)}</p>
+                  <p className={clsx("num font-bold", late || n === firstComing ? "text-ink-2" : "text-muted")}>{money(r.interest + r.principal)}</p>
                 </div>
                 {r.principal > 0 ? (
                   <p className="num text-[13px] text-faint">
                     Interest {money(r.interest)} · Principal {money(r.principal)} · Left {money(r.balanceAfter)}
                   </p>
                 ) : (
-                  n === 0 && <p className="text-[13px] text-faint">Expected {dLong(r.date)}</p>
+                  n === firstComing && <p className="text-[13px] text-faint">Expected {dLong(r.date)}</p>
                 )}
               </Item>
             );

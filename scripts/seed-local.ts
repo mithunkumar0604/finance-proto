@@ -14,7 +14,8 @@ const url = process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:56321";
 const serviceKey = process.env.SUPABASE_TEST_SERVICE_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 export const LOCAL_PASSWORD = "ledger-local-1";
 
-if (!/127\.0\.0\.1|localhost/.test(url)) throw new Error("seed-local only runs against a local Supabase stack");
+if (!/127\.0\.0\.1|localhost/.test(url) && process.env.SUPABASE_TEST_ALLOW_REMOTE !== "this-project-has-no-real-data")
+  throw new Error("seed-local runs only against a local Supabase stack (or set SUPABASE_TEST_ALLOW_REMOTE, see DEPLOYMENT.md)");
 
 const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 

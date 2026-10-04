@@ -40,6 +40,33 @@ It takes a backup, then applies everything in `supabase/migrations`.
 run this from a computer instead:
 `npx supabase db push --db-url "<SUPABASE_DB_URL>"`.)
 
+### 5a. Verify the new project (before any real data goes in)
+
+While the project holds no real data, run the database tests against it. They create
+test logins, customers and loans, and check access rules, roles, payments, missed
+interest, waivers, private files and the import.
+
+```bash
+SUPABASE_TEST_URL=https://xxxx.supabase.co \
+SUPABASE_TEST_ANON_KEY=<anon key> \
+SUPABASE_TEST_SERVICE_KEY=<service-role key> \
+SUPABASE_TEST_ALLOW_REMOTE=this-project-has-no-real-data \
+npm run test:db
+```
+
+To look at the app with safe demo data, load the fictional demo book the same way
+(`npm run seed:local` with the same four variables; it refuses a database that
+already has customers).
+
+Then wipe the test data and re-create the empty tables, so the project starts clean:
+
+```bash
+npx supabase db reset --db-url "<SUPABASE_DB_URL>"
+```
+
+**Never run these once real customers are in the project.** After that, use the
+local stack for tests.
+
 ### 6. Create the first login (the owner)
 
 1. Supabase → Authentication → Users → Add user. E-mail: `<mobile>@ledgerpro.invalid`
@@ -62,6 +89,11 @@ and, if they pass, publishes to Cloudflare Pages.
 
 Cloudflare → the Pages project → Custom domains → add the domain. The
 `pages.dev` address keeps working.
+
+### 9. Existing customers
+
+See `IMPORT.md`. Do not import real data until steps 1–7 are done and a real backup
+has been restored successfully (`BACKUP_RESTORE.md`).
 
 ## Every deployment after that
 

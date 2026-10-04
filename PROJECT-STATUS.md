@@ -10,75 +10,97 @@ The client approved the clickable prototype. It is preserved as tag
 
 The `production` branch turns that prototype into a real application, with the
 screens unchanged: real logins, a real database, tested money rules, backups.
-**It is built and tested locally. It is not live yet**, because the hosting accounts
-do not exist yet (see "Needed to go live").
+**It is built and tested locally and in CI. It is not live yet**, because the hosting
+accounts do not exist yet (see "Needed to go live").
 
 - Demo (prototype, demo data): https://mithunkumar0604.github.io/finance-proto/
 - Repository: https://github.com/mithunkumar0604/finance-proto
   - `main` = approved prototype source · `gh-pages` = deployed demo
-  - `production` = the production conversion (not merged)
+  - `production` = the production conversion. **Do not merge into `main` until the
+    production secrets and settings are in place** (the deploy runs on `main`).
 
 ## How the business works (confirmed by the client)
 
 - Most customers pay **interest only**, weekly or monthly. Principal stays untouched
-  until part or all of it is returned. Full return closes the loan.
+  until part or all of it is returned.
+- **Every missed interest period stays pending on its own** until it is paid,
+  part-paid, or waived by the owner. Three missed months of ₹3,000 = ₹9,000 pending.
+  Paying a newer month never clears an older one.
+- **The owner decides what a payment covers**: all pending months, some, part of one,
+  principal only, principal with chosen months, or any amount.
+- Interest is never cleared automatically; only paid, or waived by the owner with a
+  reason (recorded).
 - The app leads with **Interest paid / Interest pending / Principal Left**.
 - Payments can be **backdated**. Reports count money on the **payment date**.
 - The client is not highly computer-literate: simple English, few screens, few choices.
 
-## What the production branch adds
+Full rules, and the assumptions still to confirm: `docs/BUSINESS-RULES.md`.
+
+## What the production branch has
 
 | Area | State |
 |---|---|
-| Money engine in whole paise, with unit tests (`src/lib/finance`) | Done · 77 tests |
+| Money engine in whole paise, with unit tests (`src/lib/finance`) | Done |
+| Missed interest: a collection per period, chosen by the owner at payment, waivers | Done |
 | Database: tables, constraints, indexes (`supabase/migrations`) | Done |
 | Access rules: owner / collector / staff, enforced by the database | Done |
-| Atomic saves: payment, new loan, moved date, loan edit, security release | Done |
+| Atomic saves: payment, waiver, new loan, moved date, loan edit, security release | Done |
 | Duplicate protection (double tap, retry) and two-people-at-once protection | Done |
-| Reversing a wrong payment (owner), history never edited or deleted | Done |
-| Activity log written by the database for every change | Done |
+| Reversing a wrong payment (owner); history never edited or deleted | Done |
+| Activity log, payment allocations and waiver records written by the database | Done |
 | Sign-in with Supabase Auth; roles from the user's profile | Done |
 | All screens reading and saving through the database | Done |
 | Reports and PDF on real data; older history read on demand | Done |
 | Private file storage with access rules (bucket + policies, tested) | Done |
+| Import of existing customers and loans from CSV (`IMPORT.md`) | Done; tested with 20 sample rows. **No real data imported** |
 | Photo upload buttons on the customer / security forms | **Not wired yet** (still placeholders) |
-| Database tests against a local Supabase | Done · 46 tests |
-| Browser tests of the critical flows (mobile, tablet, desktop) | Done · 20 tests |
-| Encrypted nightly backup + restore script; restore tested locally | Done |
-| CI, browser tests, deploy, backup and migration workflows | Written · **not yet run on GitHub** |
+| Encrypted nightly backup + restore script | Done; restore tested **locally only** |
+| CI (lint, types, unit tests, build, database tests) | Running on GitHub for `production` |
+| Browser tests, deploy, backup and migration workflows | Written; **not yet run on GitHub** (they need the secrets, or `main`) |
 | Security headers (CSP etc.) for Cloudflare Pages | Done, tested on Cloudflare's local runtime |
-| Independent security review and money-engine review | Done; findings fixed or listed below |
-| Handover documents | README, DEPLOYMENT, ENVIRONMENT, BACKUP_RESTORE, docs/BUSINESS-RULES |
+| Handover documents | README, DEPLOYMENT, ENVIRONMENT, BACKUP_RESTORE, IMPORT, docs/BUSINESS-RULES |
+
+Tests: unit (engine, missed interest, import checker, mappers), database (payments,
+missed interest, waivers, roles, files, import), browser (critical flows at phone,
+tablet and desktop widths). Run them with the commands in `README.md`.
 
 ## Needed to go live (only the project owner can do these)
 
-1. Create a Supabase project and a Cloudflare account (both free). Steps in `DEPLOYMENT.md`.
-2. Create the private backup repository and its token.
-3. Add the variables and secrets from `ENVIRONMENT.md` to GitHub.
-4. Get the client's answer to the open question below.
-5. Decide how the client's existing ~850 customers and their loans get in: typed in,
-   or imported from a file they already keep. An import script is not written yet.
+1. Create the Supabase project, the Cloudflare account/project, and the private
+   backup repository with its token. Steps: `DEPLOYMENT.md`.
+2. Add the variables and secrets from `ENVIRONMENT.md` to GitHub.
+3. Then, in order (all in `DEPLOYMENT.md`): apply the migrations → verify the empty
+   project with the database tests → create the owner login → run one real backup and
+   restore it somewhere safe (`BACKUP_RESTORE.md`) → merge `production` into `main`
+   to deploy → import a small sample of real customers, check with the owner, then
+   the full book (`IMPORT.md`).
 
-## Open question that changes what customers are asked to pay
+## Changes to the approved screens
 
-**What does a customer owe after missing whole periods?** Today a new collection
-opens only when the previous one is paid, so a customer who missed July, August and
-September is shown one month's interest pending, not three. This is how the approved
-prototype behaves and it has not been changed. Details and the other open questions:
-`docs/BUSINESS-RULES.md`.
+The design is unchanged. Additions, all small:
+
+- a busy state on save buttons, and plain-language error messages;
+- a "Could not open your data" screen;
+- "Entered by mistake? Reverse" on the latest payment (owner only);
+- **Receive Payment**: when more than one period is pending, a "Pending Interest"
+  list with a tick box per period and a total; a "− Waive interest" choice under
+  Adjustment (owner only); the Notes box becomes "Reason for waiving" when waiving;
+- the loan page lists every missed period as "Overdue Collection";
+- in the live app the demo-only items are hidden (pre-filled login, PIN hint, "view
+  as" role switcher, "Reset demo data", "demo" captions).
 
 ## Known gaps and follow-ups
 
 - Photo / document upload is not connected to the buttons yet (storage is ready).
+- An import carries balances, not payment history: "Total collected" on an imported
+  loan counts from the import onwards.
 - Device list in Settings shows only "this device"; "Logout all other devices" is real.
-- Lock-screen PIN is per device (kept in the browser) and starts as `1234`. It is a
-  convenience lock on top of the real sign-in, not the security boundary. Each user
-  should change it in Settings.
+- Lock-screen PIN is per device and starts as `1234`. It is a convenience lock on top
+  of the real sign-in, not the security boundary. Each user should change it.
 - New logins are created in the Supabase dashboard, not in the app.
 - PDFs print "Rs." instead of ₹ (the built-in PDF font has no ₹ sign).
 - Backup does not include uploaded files, only database records.
-- Reports treat a backdated payment by its payment date while the collection it paid
-  stays in its own period; a period can show interest "paid" with ₹0 paid in it.
+- A waiver made on its own (not as part of a payment) cannot be undone in the app.
 
 ## History of changes
 
@@ -88,12 +110,11 @@ prototype behaves and it has not been changed. Details and the other open questi
 3. **Reports simplified** — one Person / Period / Show screen with PDF download.
 4. **Upcoming reports** — Next Week, Next Month and future custom dates.
 5. **Loan schedule and end date** — coming collections and "Loan Ends" on the loan page.
-6. **Production conversion** (`production` branch, 4 Oct 2026) — everything in the
-   table above. The only additions to the approved screens: a busy state on save
-   buttons, plain-language error messages, a "Could not open your data" screen, a
-   "Entered by mistake? Reverse" link on the latest payment (owner only), and in the
-   live app the demo-only items are hidden (pre-filled login, PIN hint, "view as"
-   role switcher, "Reset demo data", "demo" captions).
+6. **Production conversion** (`production` branch) — database, sign-in, tested engine,
+   backups, CI, security review.
+7. **Missed interest and import** — the client confirmed that every missed period
+   stays pending and the owner chooses what a payment covers; the engine, database
+   and Receive Payment sheet follow that. CSV import of existing customers added.
 
 ## Tech
 

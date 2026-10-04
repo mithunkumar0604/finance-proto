@@ -222,21 +222,30 @@ export interface SavedPayment {
 }
 
 /**
- * Saves a payment the engine has worked out. `changedDues` are the dues that differ
- * from before the payment (including a newly opened next collection).
+ * Saves a payment the engine has worked out. `changedDues` are the collections the
+ * database already has that the payment changed. New collections are never sent: the
+ * database opens them itself, and the loan is read back afterwards.
  */
-export async function recordPayment(key: string, version: number, result: PaymentResult, changedDues: Due[]): Promise<SavedPayment> {
+export async function recordPayment(key: string, version: number, result: PaymentResult, changedDues: Due[], waiveReason?: string): Promise<SavedPayment> {
   const p = result.payment;
   const res = await rpc<{ recorded_on: ISODate; version: number; duplicate: boolean }>("record_payment", {
     p_key: key,
     p_loan_id: result.loan.id,
     p_version: version,
     p_payment: { id: p.id, due_id: p.dueId ?? null, date: p.date, interest: p.interest, principal: p.principal, other: p.other, method: p.method, note: p.note ?? null },
-    p_loan: { principal_left: result.loan.principalLeft, status: result.loan.status, closed_date: result.loan.closedDate ?? null },
+    p_loan: { principal_left: result.loan.principalLeft, status: result.loan.status },
     p_dues: changedDues.map(dueToRow),
+    p_waive_reason: waiveReason ?? null,
   });
   return { recordedOn: res.recorded_on, version: res.version, duplicate: res.duplicate };
 }
+
+/** The owner writes off pending interest without receiving money. */
+export const waiveInterest = (loanId: string, version: number, waive: { dueId: string; amount: number }[], reason: string) =>
+  rpc<{ closed: boolean }>("waive_interest", { p_loan_id: loanId, p_version: version, p_waive: waive.map((w) => ({ due_id: w.dueId, amount: w.amount })), p_reason: reason });
+
+/** Brings every running loan up to today: one collection for each period that has started. */
+export const accrueAll = () => rpc<number>("accrue_all", {});
 
 export const reversePayment = (paymentId: string, reason: string) => rpc<{ loan_id: string }>("reverse_payment", { p_payment_id: paymentId, p_reason: reason });
 

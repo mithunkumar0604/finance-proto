@@ -26,8 +26,10 @@ export function PaymentSuccess({
   const s = useAppState();
   const { payment, loan } = result;
   const paidDue = result.dues.find((d) => d.id === payment.dueId);
-  const stillDue = paidDue && !result.closed ? dueRemaining(paidDue) : 0;
-  const interestStillDue = paidDue && !result.closed ? dueInterestLeft(paidDue) : 0;
+  // What is still pending now: every period already due, and whatever is left of the one just paid.
+  const pending = result.closed ? [] : result.dues.filter((d) => !d.cancelled && (d.dueDate <= payment.recordedOn || d.id === payment.dueId));
+  const stillDue = pending.reduce((a, d) => a + dueRemaining(d), 0);
+  const interestStillDue = pending.reduce((a, d) => a + dueInterestLeft(d), 0);
   const nextDate = result.nextDue?.dueDate ?? paidDue?.dueDate;
   const liveLoan = s.loans.find((l) => l.id === loan.id) ?? loan;
   const principalMoved = payment.principal > 0;

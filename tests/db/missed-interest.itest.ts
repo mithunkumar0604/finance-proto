@@ -224,7 +224,7 @@ describe("10. the owner waives interest, with a reason and a record", () => {
     expect(codeOf(await owner.db.rpc("waive_interest", { ...args, p_reason: "  " }))).toBe("REASON_NEEDED");
     expect(codeOf(await collector.db.rpc("waive_interest", { ...args, p_reason: "please" }))).toBe("NOT_ALLOWED");
     expect(codeOf(await owner.db.rpc("waive_interest", { ...args, p_waive: [{ due_id: dues[1].id, amount: rupees(3001) }], p_reason: "x" }))).toBe("WAIVE_TOO_LARGE");
-    expect(codeOf(await owner.db.rpc("waive_interest", { ...args, p_version: loan.version + 5, p_reason: "x" }))).toBe("CONFLICT");
+    expect(codeOf(await owner.db.rpc("waive_interest", { ...args, p_version: loan.version! + 5, p_reason: "x" }))).toBe("CONFLICT");
     expect(left((await readLoan(owner.db, loanId)).dues)).toEqual([3000, 3000, 3000, 3000]);
     expect((await admin.from("waivers").select("id").eq("loan_id", loanId)).data).toHaveLength(0);
   });

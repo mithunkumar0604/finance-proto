@@ -6,8 +6,9 @@ Supabase is never the only copy of the data.
 
 Every night at 02:00 IST the **Backup** workflow (`.github/workflows/backup.yml`):
 
-1. dumps all business data: customers, loans, collections, payments, security
-   details, the activity log, and the logins;
+1. dumps all business data: customers, loans, collections, payments and what each
+   payment was counted against, waivers, security details, the activity log, the
+   import records, and the logins;
 2. compresses it and encrypts it (AES-256) with `BACKUP_PASSPHRASE`;
 3. stores it in the private backup repository (`BACKUP_REPO`):
    - `daily/` — the last 60 days;
@@ -75,5 +76,19 @@ identical, a restored login signed in, new customer and loan numbers continued
 after the restored ones, and the 46 database tests passed on the restored copy.
 A wrong passphrase was refused.
 
+Repeated 4 October 2026 after the missed-interest change (the backup now also holds
+payment allocations, waivers and import records): all 12 fingerprints identical.
+
 **Not yet tested against the production Supabase project**, which does not exist
-yet. Repeat the test above once it does.
+yet. **Backup is not production-ready until this is done there:**
+
+1. Run Actions → Backup once. Check a new file appears in the backup repository.
+2. Download it and restore it into a second, empty Supabase project (or the local
+   stack), following "Restore" above.
+3. Run `scripts/checksum.sql` on both and compare (see "Test a restore"). The lines
+   cover: logins, profiles, customers, loans, collateral, dues, payments,
+   allocations, waivers, imports, activity, and a `money` line (principal out,
+   money received, interest pending, interest waived).
+4. Open the restored copy in the app (point a local build at it) and check a few
+   loans' balances against the live ones.
+5. Write the date and result here.

@@ -10,13 +10,16 @@ import { Field, Input, MoneyInput, PillSelect } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import {
+  allocateInterest,
   dueInterestLeft,
   dueRemaining,
   dueStatus,
-  openDue,
+  openDues,
+  openInterest,
   settlementAmount,
   suggestAllocation,
   type Allocation,
+  type InterestPick,
   type PaymentResult,
 } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, LOAN_TYPE_LABEL, LOAN_TYPE_SHORT, money, shiftISO, todayISO } from "@/lib/format";
@@ -166,12 +169,27 @@ function PaymentForm({
   const loan = s.loans.find((l) => l.id === loanId)!;
   const customer = s.customers.find((c) => c.id === loan.customerId)!;
   const loanDues = s.dues.filter((d) => d.loanId === loanId && !d.cancelled);
-  const due = loanDues.find((d) => d.id === dueId && dueRemaining(d) > 0) ?? openDue(loanDues);
-  const remaining = due ? dueRemaining(due) : 0;
-  const interestDue = due ? dueInterestLeft(due) : 0;
-  const settle = settlementAmount(loan, due);
-  const canReceive = permissions(s).receive;
-  const scheduledPrincipal = !!due && due.principalAmount > 0;
+  // Every period with money pending, oldest first. A missed period stays here until it is paid or waived.
+  const open = openDues(loanDues);
+  const perm = permissions(s);
+  const canReceive = perm.receive;
+
+  // Which periods this payment is for. Opened from one collection: that one. Otherwise everything already due.
+  const [picked, setPicked] = useState<string[]>(() => {
+    const asked = open.find((d) => d.id === dueId);
+    if (asked) return [asked.id];
+    const dueNow = open.filter((d) => d.dueDate <= today);
+    return (dueNow.length ? dueNow : open.slice(0, 1)).map((d) => d.id);
+  });
+  const chosen = open.filter((d) => picked.includes(d.id));
+  const due = chosen[0] ?? open[0];
+  const remaining = chosen.reduce((a, d) => a + dueRemaining(d), 0);
+  /** Interest of the ticked periods. */
+  const interestDue = chosen.reduce((a, d) => a + dueInterestLeft(d), 0);
+  /** Interest of every pending period. */
+  const interestAll = openInterest(loanDues);
+  const settle = settlementAmount(loan, loanDues);
+  const scheduledPrincipal = chosen.some((d) => d.principalAmount > 0);
 
   const [mode, setMode] = useState<Mode>(preset === "settle" ? "settle" : "interest");
   const [more, setMore] = useState(false);
@@ -188,33 +206,61 @@ function PaymentForm({
   const [saveKey] = useState(newKey);
   const { busy, run } = useSave();
 
+  const togglePick = (id: string) => {
+    const next = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
+    const now = open.filter((d) => next.includes(d.id));
+    setPicked(next);
+    setManual(null);
+    setAmount(now.reduce((a, d) => a + dueRemaining(d), 0) || "");
+    setInterestAmt(now.reduce((a, d) => a + dueInterestLeft(d), 0) || "");
+  };
+
   // How the money is counted in each mode (the rules themselves live in lib/finance/engine).
+  const waiving = adjLess && (mode === "settle" || mode === "adjust");
   let split: Allocation;
   if (mode === "settle") {
     const a = adj || 0;
-    split = { interest: Math.max(0, interestDue - (adjLess ? a : 0)), principal: loan.principalLeft, other: adjLess ? 0 : a };
+    split = { interest: Math.max(0, interestAll - (adjLess ? a : 0)), principal: loan.principalLeft, other: adjLess ? 0 : a };
   } else if (mode === "principal") {
     split = { interest: 0, principal: Math.min(principalAmt || 0, loan.principalLeft), other: 0 };
   } else if (mode === "both") {
     split = { interest: interestAmt || 0, principal: Math.min(principalAmt || 0, loan.principalLeft), other: 0 };
   } else if (mode === "adjust") {
-    split = { interest: 0, principal: 0, other: adj || 0 };
+    split = { interest: 0, principal: 0, other: adjLess ? 0 : adj || 0 };
   } else {
-    split = manual ?? suggestAllocation(amount || 0, loan, due);
+    // interest goes to the ticked periods only; anything over is principal, as before
+    split = manual ?? suggestAllocation(amount || 0, loan, loanDues, picked);
   }
+  // Which period each rupee of interest goes to: the ticked ones first, oldest first.
+  const allocations: InterestPick[] = allocateInterest(loanDues, split.interest, mode === "settle" ? [] : picked);
+  // What the owner is writing off: in a settlement, whatever interest is not collected.
+  const waivePicks: InterestPick[] = !waiving
+    ? []
+    : mode === "adjust"
+      ? allocateInterest(loanDues, adj || 0, picked)
+      : open
+          .map((d) => ({ dueId: d.id, amount: dueInterestLeft(d) - (allocations.find((a) => a.dueId === d.id)?.amount ?? 0) }))
+          .filter((w) => w.amount > 0);
+  const waiveTotal = waivePicks.reduce((a, w) => a + w.amount, 0);
+
   // What was typed must be what is recorded: an amount that does not fit is refused, never trimmed quietly.
   const problem =
     (mode === "principal" || mode === "both") && (principalAmt || 0) > loan.principalLeft
       ? `This is more than the principal left (${money(loan.principalLeft)}).`
-      : mode === "both" && (interestAmt || 0) > interestDue
-        ? `This is more than the interest due (${money(interestDue)}). Put the extra under Adjustment.`
-        : mode === "settle" && adjLess && (adj || 0) > interestDue
-          ? `You cannot take off more than the interest due (${money(interestDue)}).`
-          : "";
+      : (mode === "both" ? interestAmt || 0 : (manual?.interest ?? 0)) > interestAll
+        ? `This is more than the interest pending (${money(interestAll)}). Put the extra under Adjustment.`
+        : waiving && (adj || 0) > interestAll
+          ? `You cannot take off more than the interest pending (${money(interestAll)}).`
+          : waiving && (adj || 0) > 0 && !perm.waive
+            ? "Only the owner can waive interest."
+            : waiving && (adj || 0) > 0 && !note.trim()
+              ? "Write the reason for waiving in Notes."
+              : "";
   const total = split.interest + split.principal + split.other;
   const principalAfter = Math.max(0, loan.principalLeft - split.principal);
-  const interestAfter = Math.max(0, interestDue - split.interest);
+  const interestAfter = Math.max(0, interestAll - split.interest - waiveTotal);
   const backdated = date < today;
+  const waiverOnly = mode === "adjust" && adjLess;
 
   const choose = (m: Mode) => {
     setMode(m);
@@ -232,17 +278,27 @@ function PaymentForm({
 
   const confirm = async () => {
     if (problem) return toast(problem, "error");
+    if (waiverOnly) {
+      // nothing is received: the owner writes interest off, with the reason from Notes
+      if (!(await run(() => actions.waiveInterest(loan.id, waivePicks, note.trim()).then(() => true)))) return;
+      toast("Interest waived");
+      onClose();
+      return;
+    }
     const result = await run(() =>
       actions.receivePayment(
         {
-      loanId: loan.id,
-      dueId: due?.id,
-      date,
-      interest: split.interest,
-      principal: split.principal,
-      other: split.other,
-      method,
-      note: note.trim() || (mode === "adjust" ? "Adjustment" : undefined),
+          loanId: loan.id,
+          dueId: due?.id,
+          date,
+          interest: split.interest,
+          principal: split.principal,
+          other: split.other,
+          method,
+          note: note.trim() || (mode === "adjust" ? "Adjustment" : undefined),
+          allocations: split.interest > 0 ? allocations : undefined,
+          waive: waivePicks.length ? waivePicks : undefined,
+          waiveReason: waivePicks.length ? note.trim() : undefined,
         },
         saveKey,
       ),
@@ -276,8 +332,8 @@ function PaymentForm({
         </span>
       }
       footer={
-        <Button size="lg" className="w-full text-[16px] tracking-wide uppercase" disabled={busy || !canReceive || total <= 0} onClick={confirm}>
-          {busy ? "Saving…" : mode === "settle" ? "Confirm Settlement" : "Confirm Payment"}
+        <Button size="lg" className="w-full text-[16px] tracking-wide uppercase" disabled={busy || !canReceive || (waiverOnly ? waiveTotal <= 0 : total <= 0)} onClick={confirm}>
+          {busy ? "Saving…" : waiverOnly ? "Confirm Waiver" : mode === "settle" ? "Confirm Settlement" : "Confirm Payment"}
           {total > 0 && <span className="num normal-case"> · {money(total)}</span>}
         </Button>
       }
@@ -289,7 +345,7 @@ function PaymentForm({
           <p className="num mt-0.5 text-xl font-bold">{money(remaining)}</p>
           {due && (
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-              {dRelative(due.dueDate, today)}
+              {chosen.length > 1 ? `${chosen.length} periods · oldest ${dRelative(due.dueDate, today).toLowerCase()}` : dRelative(due.dueDate, today)}
               {dueStatus(due, today) !== "pending" && <StatusChip status={dueStatus(due, today)} />}
             </p>
           )}
@@ -305,6 +361,31 @@ function PaymentForm({
         <p className="-mt-3 mb-5 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {money(due.paid)} already paid on this due — {money(remaining)} left.
         </p>
+      )}
+
+      {/* Missed periods: each stays pending on its own. The owner ticks what this payment is for. */}
+      {open.length > 1 && mode !== "settle" && mode !== "principal" && (
+        <div className="mb-5 overflow-hidden rounded-2xl border border-line">
+          <p className="flex items-center justify-between gap-3 bg-line-2/60 px-3.5 py-2 text-xs font-bold tracking-[0.06em] text-muted uppercase">
+            <span>Pending Interest</span>
+            <span className="font-semibold tracking-normal normal-case">Tick what is being paid</span>
+          </p>
+          {open.map((d) => (
+            <label key={d.id} className="flex cursor-pointer items-center gap-3 border-t border-line-2 px-3.5 py-2.5 select-none">
+              <input type="checkbox" checked={picked.includes(d.id)} onChange={() => togglePick(d.id)} className="size-5 shrink-0 accent-brand-700" />
+              <span className="min-w-0 flex-1 text-[15px] font-semibold">
+                {dLong(d.dueDate)}
+                {d.dueDate > today && <span className="font-normal text-muted"> · not due yet</span>}
+                {d.paid > 0 && <span className="font-normal text-muted"> · part paid</span>}
+              </span>
+              <span className="num text-[15px] font-bold">{money(dueRemaining(d))}</span>
+            </label>
+          ))}
+          <div className="flex items-center justify-between border-t border-line bg-line-2/60 px-3.5 py-2.5">
+            <span className="text-sm font-semibold text-ink-2">Total Pending</span>
+            <span className="num font-extrabold">{money(open.reduce((x, d) => x + dueRemaining(d), 0))}</span>
+          </div>
+        </div>
       )}
 
       {/* Mode */}
@@ -365,6 +446,11 @@ function PaymentForm({
                   </div>
                 ),
               )}
+              {allocations.length > 1 && (
+                <p className="num pb-1 text-xs text-muted">
+                  Interest for {allocations.map((x) => `${dShort(open.find((d) => d.id === x.dueId)!.dueDate)} ${money(x.amount)}`).join(" · ")}
+                </p>
+              )}
               {total > 0 && (
                 <p className="mt-2 border-t border-line pt-2.5 text-sm text-muted">
                   {interestAfter > 0 ? (
@@ -385,7 +471,7 @@ function PaymentForm({
           <div className="rounded-2xl border border-brand-100 bg-brand-50/60 p-4">
             <div className="divide-y divide-brand-100">
               <Line label="Principal Left" value={money(loan.principalLeft)} />
-              <Line label="Current Interest Due" value={money(interestDue)} />
+              <Line label={open.length > 1 ? `Interest Pending · ${open.length} periods` : "Current Interest Due"} value={money(interestAll)} />
               <div className="py-2.5">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[15px] text-muted">Adjustment (optional)</span>
@@ -403,7 +489,7 @@ function PaymentForm({
                   </div>
                 </div>
                 <MoneyInput className="mt-2 h-11" value={adj} onChange={setAdj} placeholder="0" />
-                <p className="mt-1 text-xs text-muted">{adjLess ? "Interest waived off from the settlement." : "Extra charges added to the settlement."}</p>
+                <p className="mt-1 text-xs text-muted">{adjLess ? "Interest waived off from the settlement. Write the reason in Notes." : "Extra charges added to the settlement."}</p>
               </div>
               <div className="flex items-center justify-between pt-3">
                 <span className="font-bold">Total Settlement</span>
@@ -429,17 +515,40 @@ function PaymentForm({
               <Mini label="Principal Paid" value={money(split.principal)} tone="text-brand-700" />
               <Mini label="Remaining" value={money(principalAfter)} strong />
             </div>
-            {mode === "principal" && interestDue > 0 && (
-              <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">Interest due {money(interestDue)} stays pending — collect it with “Principal + Interest”.</p>
+            {mode === "principal" && interestAll > 0 && (
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">Interest {money(interestAll)} stays pending — collect it with “Principal + Interest”.</p>
             )}
-            {principalAfter === 0 && split.principal > 0 && <p className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">This clears all principal — the loan will close.</p>}
+            {principalAfter === 0 && split.principal > 0 && (
+              <p className="rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-800">
+                {interestAfter > 0 ? `This clears all principal. The loan stays open until the ${money(interestAfter)} interest is collected or waived.` : "This clears all principal — the loan will close."}
+              </p>
+            )}
           </div>
         )}
 
         {mode === "adjust" && (
-          <Field label="Adjustment Amount" hint="Late fees, charges or any other amount that is not interest or principal.">
-            <MoneyInput size="xl" value={adj} onChange={setAdj} autoFocus />
-          </Field>
+          <>
+            {perm.waive && interestAll > 0 && (
+              <div className="mb-3 flex w-fit rounded-lg bg-line-2 p-0.5">
+                {[false, true].map((less) => (
+                  <button
+                    key={String(less)}
+                    type="button"
+                    onClick={() => setAdjLess(less)}
+                    className={clsx("h-8 rounded-md px-3 text-xs font-semibold whitespace-nowrap", adjLess === less ? "bg-ink text-white" : "text-ink-2")}
+                  >
+                    {less ? "− Waive interest" : "+ Add charge"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Field
+              label={adjLess ? "Interest to Waive" : "Adjustment Amount"}
+              hint={adjLess ? "Taken off the pending interest of the ticked periods. No money is received. Write the reason in Notes." : "Late fees, charges or any other amount that is not interest or principal."}
+            >
+              <MoneyInput size="xl" value={adj} onChange={setAdj} autoFocus />
+            </Field>
+          </>
         )}
 
         <p className="mt-3 flex items-start gap-1.5 text-xs text-faint">
@@ -480,7 +589,7 @@ function PaymentForm({
         <Field label="Payment Method" group>
           <PillSelect options={METHODS} value={method} onChange={setMethod} />
         </Field>
-        <Field label="Notes (optional)">
+        <Field label={waiving && (adj || 0) > 0 ? "Reason for waiving" : "Notes (optional)"}>
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. paid at shop" />
         </Field>
         {!canReceive && <Chip tone="amber">Your role cannot receive payments</Chip>}
