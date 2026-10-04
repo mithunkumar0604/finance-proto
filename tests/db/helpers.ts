@@ -61,7 +61,7 @@ type Terms = Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "intere
 /** Creates a loan the way the app does: the engine builds the first collection, the database saves both. */
 export async function giveLoan(db: SupabaseClient, terms: Terms, key = randomUUID()) {
   const draft: Loan = { ...terms, id: "", principalLeft: terms.amount, status: "active", security: terms.security ?? null };
-  const first = buildDue(draft, nextDueDate(draft.startDate, draft.frequency), randomUUID());
+  const first = buildDue(draft, nextDueDate(draft.startDate, draft.frequency, 1, draft.startDate), randomUUID());
   return db.rpc("create_loan", {
     p_key: key,
     p_loan: loanToRow(draft),

@@ -385,7 +385,7 @@ export const actions = {
   async createLoan(data: Omit<Loan, "id" | "principalLeft" | "status">, key: string): Promise<Loan> {
     const draft: Loan = { ...data, id: "", principalLeft: data.amount, status: "active" };
     if (LIVE) {
-      const firstDue = buildDue(draft, nextDueDate(draft.startDate, draft.frequency), newKey());
+      const firstDue = buildDue(draft, nextDueDate(draft.startDate, draft.frequency, 1, draft.startDate), newKey());
       const loanId = await remote.createLoan(key, draft, firstDue, draft.security);
       await reloadLoans([loanId]);
       refreshActivity();
@@ -395,7 +395,7 @@ export const actions = {
     }
     const s = getState();
     const loan: Loan = { ...draft, id: nextLoanId(s.loans) };
-    const firstDue = buildDue(loan, nextDueDate(loan.startDate, loan.frequency), uid("D"));
+    const firstDue = buildDue(loan, nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate), uid("D"));
     const customer = s.customers.find((c) => c.id === loan.customerId);
     set((st) => ({
       ...st,

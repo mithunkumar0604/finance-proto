@@ -47,6 +47,9 @@ revoke all on all tables in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 revoke execute on all functions in schema public from public, anon, authenticated;
 alter default privileges in schema public revoke execute on functions from public, anon, authenticated;
+-- Postgres lets everyone run a new function unless told otherwise, and the per-schema line
+-- above cannot take that away. This one does, for every function created from now on.
+alter default privileges for role postgres revoke execute on functions from public;
 alter default privileges in schema public revoke all on tables from anon, authenticated;
 alter default privileges in schema public revoke all on sequences from anon, authenticated;
 

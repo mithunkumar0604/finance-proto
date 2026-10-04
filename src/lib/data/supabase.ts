@@ -61,10 +61,15 @@ export function supabase(): SupabaseClient {
 /**
  * People sign in with a mobile number. Supabase Auth needs an e-mail address, so a
  * number becomes "<number>@<login domain>". Anything with an @ is used as typed.
+ *
+ * The default domain ends in ".invalid", which by internet standard can never receive
+ * mail: nobody can have a password-reset link for these logins sent anywhere. Only use
+ * another domain (NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN) if the business owns it.
  */
+export const LOGIN_DOMAIN = process.env.NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN || "ledgerpro.invalid";
+
 export function loginEmail(user: string): string {
   const t = user.trim();
   if (t.includes("@")) return t.toLowerCase();
-  const domain = process.env.NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN || "ledgerpro.app";
-  return `${t.replace(/\D/g, "")}@${domain}`;
+  return `${t.replace(/\D/g, "")}@${LOGIN_DOMAIN}`;
 }

@@ -22,7 +22,9 @@ export type FinanceErrorCode =
   | "FUTURE_DATE"
   | "BEFORE_LOAN_START"
   | "PRINCIPAL_TOO_LARGE"
-  | "INTEREST_TOO_LARGE";
+  | "INTEREST_TOO_LARGE"
+  | "BEFORE_LAST_PAYMENT"
+  | "INVALID_TERMS";
 
 /** A payment that must not be recorded. `message` is safe to show to the user. */
 export class FinanceError extends Error {
@@ -41,10 +43,21 @@ export class FinanceError extends Error {
 
 const PERIOD_DAYS: Record<Exclude<Frequency, "monthly">, number> = { weekly: 7, "15days": 15, "30days": 30, custom: 30 };
 
-/** ASSUMPTION: next collection date = previous date + one period ("custom" = 30 days). */
-export function nextDueDate(from: ISODate, freq: Frequency, periods = 1): ISODate {
+/**
+ * ASSUMPTION: next collection date = previous date + one period ("custom" = 30 days).
+ *
+ * Monthly loans keep to the day of the month the loan was given (`anchor`): a loan given
+ * on the 31st falls due on 28 Feb, then 31 Mar, 30 Apr... Without the anchor the date
+ * would slip to the 28th after February and stay there.
+ */
+export function nextDueDate(from: ISODate, freq: Frequency, periods = 1, anchor?: ISODate): ISODate {
   const d = parseISO(from);
-  return toISO(freq === "monthly" ? addMonths(d, periods) : addDays(d, PERIOD_DAYS[freq] * periods));
+  if (freq !== "monthly") return toISO(addDays(d, PERIOD_DAYS[freq] * periods));
+  if (!anchor || anchor > from) return toISO(addMonths(d, periods));
+  const start = parseISO(anchor);
+  let n = 1;
+  while (n < 2400 && toISO(addMonths(start, n)) <= from) n++;
+  return toISO(addMonths(start, n + periods - 1));
 }
 
 /** Step a date back by `n` periods (used only to build demo history). */
@@ -63,21 +76,26 @@ export const previousDueDate = (from: ISODate, freq: Frequency, n = 1): ISODate 
  */
 export function periodInterest(loan: Pick<Loan, "interest" | "amount" | "principalLeft">): Paise {
   const { style, value, method } = loan.interest;
-  if (style === "percent" && method !== "manual") return percentOf(method === "fixed" ? loan.amount : loan.principalLeft, value);
-  return value;
+  if (style !== "percent") {
+    if (!isPaise(value)) throw new FinanceError("INVALID_TERMS", "The interest amount on this loan is not valid.");
+    return value;
+  }
+  if (!Number.isFinite(value) || value < 0 || value > 100) throw new FinanceError("INVALID_TERMS", "The interest percentage on this loan is not valid.");
+  // "manual" with a percentage is treated as "on balance": a starting figure the user can see.
+  const base = method === "fixed" ? loan.amount : loan.principalLeft;
+  const interest = percentOf(base, value);
+  // ASSUMPTION: while principal is owed, interest never rounds down to nothing (at least 1 rupee).
+  return interest === 0 && base > 0 && value > 0 ? 100 : interest;
 }
 
 /** The next expected collection for a loan. */
 export function buildDue(loan: Loan, dueDate: ISODate, id: string): Due {
-  return {
-    id,
-    loanId: loan.id,
-    dueDate,
-    interestAmount: periodInterest(loan),
-    principalAmount: Math.min(loan.principalPerDue, loan.principalLeft),
-    paid: 0,
-    interestPaid: 0,
-  };
+  const interestAmount = periodInterest(loan);
+  if (!isPaise(loan.principalPerDue)) throw new FinanceError("INVALID_TERMS", "The principal per collection on this loan is not valid.");
+  const principalAmount = Math.min(loan.principalPerDue, loan.principalLeft);
+  // A collection of nothing would leave a running loan with nothing to collect, for ever.
+  if (interestAmount + principalAmount === 0) throw new FinanceError("INVALID_TERMS", "Set an interest amount or a principal amount for each collection.");
+  return { id, loanId: loan.id, dueDate, interestAmount, principalAmount, paid: 0, interestPaid: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,21 +199,27 @@ export function applyPayment(
   if (input.principal > loan.principalLeft) throw new FinanceError("PRINCIPAL_TOO_LARGE", "This is more than the principal left on the loan.");
 
   const dues = loanDues.map((d) => ({ ...d }));
-  const due = dues.find((d) => d.id === input.dueId) ?? openDue(dues);
+  // The collection asked for, if it still has money pending; otherwise the earliest open one.
+  const due = dues.find((d) => d.id === input.dueId && !d.cancelled && dueRemaining(d) > 0) ?? openDue(dues);
   if (input.interest > (due ? dueInterestLeft(due) : 0))
     throw new FinanceError("INTEREST_TOO_LARGE", "This is more than the interest due. Put the extra under Other.");
 
   const principalLeft = loan.principalLeft - input.principal;
+  const lastPaid = dues.reduce((a, d) => (d.lastPaidDate && d.lastPaidDate > a ? d.lastPaidDate : a), "");
+  if (principalLeft === 0 && input.date < lastPaid)
+    throw new FinanceError("BEFORE_LAST_PAYMENT", "The loan cannot be closed on a date before its latest payment.");
   const updatedLoan: Loan = { ...loan, principalLeft };
 
   if (due) {
     // Principal only counts towards the collection's own principal part. Extra principal
     // reduces the balance without "paying" interest that is still owed.
     const interestPaid = dueInterestPaid(due) + input.interest;
+    const paidBefore = due.paid;
     const principalPaid = Math.min(due.principalAmount, duePrincipalPaid(due) + input.principal);
     due.interestPaid = interestPaid;
     due.paid = interestPaid + principalPaid;
-    if (input.interest + input.principal > 0) due.lastPaidDate = input.date;
+    // only when this collection itself received money; a backdated entry never moves the date backwards
+    if (due.paid > paidBefore && input.date > (due.lastPaidDate ?? "")) due.lastPaidDate = input.date;
   }
 
   const payment: Payment = {
@@ -228,7 +252,7 @@ export function applyPayment(
   let nextDue: Due | undefined;
   if (due && dueRemaining(due) === 0 && !dues.some((d) => d !== due && !d.cancelled && dueRemaining(d) > 0)) {
     const base = due.rescheduled?.originalDate ?? due.dueDate;
-    nextDue = buildDue(updatedLoan, nextDueDate(base, loan.frequency), ids.nextDueId);
+    nextDue = buildDue(updatedLoan, nextDueDate(base, loan.frequency, 1, loan.startDate), ids.nextDueId);
     dues.push(nextDue);
   }
   return { loan: updatedLoan, dues, payment, closed: false, nextDue };
@@ -252,12 +276,12 @@ export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit =
   if (!open) return [];
   const out: Due[] = [];
   let principal = loan.principalLeft - duePrincipalLeft(open);
-  let date = nextDueDate(open.rescheduled?.originalDate ?? open.dueDate, loan.frequency);
+  let date = nextDueDate(open.rescheduled?.originalDate ?? open.dueDate, loan.frequency, 1, loan.startDate);
   for (let i = 0; date <= until && i < limit && principal > 0; i++) {
     const due = buildDue({ ...loan, principalLeft: principal }, date, `expected-${loan.id}-${i}`);
     out.push(due);
     principal -= due.principalAmount;
-    date = nextDueDate(date, loan.frequency);
+    date = nextDueDate(date, loan.frequency, 1, loan.startDate);
   }
   return out;
 }
@@ -289,7 +313,8 @@ export function loanSchedule(loan: Loan, loanDues: Due[], interestOnlyRows = 3):
   if (!open) return null;
   const interestOnly = loan.principalPerDue <= 0;
   const FAR = "9999-12-31";
-  const future = projectDues(loan, loanDues, FAR, interestOnly ? interestOnlyRows - 1 : 600);
+  // An instalment loan is listed to its end, however many collections that is.
+  const future = projectDues(loan, loanDues, FAR, interestOnly ? interestOnlyRows - 1 : Math.ceil(loan.principalLeft / loan.principalPerDue) + 1);
   let balance = loan.principalLeft;
   const rows: ScheduleRow[] = [
     { date: open.dueDate, interest: dueInterestLeft(open), principal: duePrincipalLeft(open), balanceAfter: (balance -= duePrincipalLeft(open)) },
@@ -341,5 +366,5 @@ export function previewFirstCollection(
 ) {
   const interest = periodInterest(loan);
   const principal = Math.min(loan.principalPerDue, loan.principalLeft);
-  return { date: nextDueDate(loan.startDate, loan.frequency), interest, principal, total: interest + principal };
+  return { date: nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate), interest, principal, total: interest + principal };
 }

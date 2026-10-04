@@ -1,0 +1,28 @@
+name: Browser tests
+
+# The full critical-flow suite in a real browser against a local Supabase.
+# Slower than CI, so it runs on demand and before every deploy (see deploy.yml).
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx supabase start -x studio,imgproxy,logflare,vector,realtime,edge-runtime,supavisor,mailpit,postgres-meta
+      - run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results
+          retention-days: 7

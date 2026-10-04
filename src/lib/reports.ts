@@ -186,7 +186,7 @@ export function registerReport(s: AppState, today: ISODate, range: DateRange, sh
 
     const due = dues.filter((d) => d.dueDate <= today);
     const coming = dues.filter((d) => d.dueDate > today && dueInterestLeft(d) > 0);
-    const interest = due.reduce((a, d) => a + d.interestAmount, 0);
+    const interest = due.reduce((a, d) => a + dueInterestPaid(d) + dueInterestLeft(d), 0);
     const pending = due.reduce((a, d) => a + dueInterestLeft(d), 0);
     const upcoming = coming.reduce((a, d) => a + dueInterestLeft(d), 0);
     const late = due.filter((d) => dueInterestLeft(d) > 0 && d.dueDate < today);

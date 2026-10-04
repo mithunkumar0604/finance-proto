@@ -26,9 +26,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `npx serve out -l ${PORT} --no-clipboard`,
+    // E2E_CLOUDFLARE=1 serves the build with Cloudflare Pages' own runtime, so its routing
+    // and the security headers in out/_headers are tested too.
+    command: process.env.E2E_CLOUDFLARE ? `npx wrangler@4 pages dev out --port ${PORT} --ip 127.0.0.1` : `npx serve out -l ${PORT} --no-clipboard`,
     url: `http://127.0.0.1:${PORT}`,
     reuseExistingServer: false,
-    timeout: 60_000,
+    timeout: 180_000,
   },
 });

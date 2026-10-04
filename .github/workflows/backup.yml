@@ -1,0 +1,61 @@
+name: Backup
+
+# Every night: an encrypted copy of the database is stored in a separate, private
+# GitHub repository, so Supabase is never the only copy. See BACKUP_RESTORE.md.
+on:
+  workflow_call:
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that backup is configured
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_REPO_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+        run: |
+          test -n "$DB_URL" || { echo "::error::SUPABASE_DB_URL secret is missing"; exit 1; }
+          test -n "$BACKUP_PASSPHRASE" || { echo "::error::BACKUP_PASSPHRASE secret is missing"; exit 1; }
+          test -n "$BACKUP_REPO_TOKEN" || { echo "::error::BACKUP_REPO_TOKEN secret is missing"; exit 1; }
+          test -n "${{ vars.BACKUP_REPO }}" || { echo "::error::BACKUP_REPO variable is missing"; exit 1; }
+
+      - name: Dump and encrypt
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          mkdir -p dump
+          scripts/backup.sh "dump/ledgerpro-$(date -u +%Y-%m-%d).sql.gz.gpg"
+
+      - name: Store in the private backup repository
+        env:
+          BACKUP_REPO_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+        run: |
+          # the token is passed as a header for this run only; it is never written into the clone's config
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$BACKUP_REPO_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" clone --depth 1 "https://github.com/${{ vars.BACKUP_REPO }}.git" store
+          mkdir -p store/daily store/monthly
+          cp dump/*.gpg store/daily/
+          # keep the first backup of each month for good
+          month="store/monthly/ledgerpro-$(date -u +%Y-%m).sql.gz.gpg"
+          test -f "$month" || cp dump/*.gpg "$month"
+          # keep 60 daily backups
+          ls -1 store/daily/*.gpg | sort | head -n -60 | xargs -r rm -f
+          cd store
+          git config user.name "ledgerpro-backup"
+          git config user.email "backup@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Backup $(date -u +%Y-%m-%d)"
+          git -c http.extraheader="$auth" push -q
+          echo "Stored. Daily backups kept: $(ls -1 daily | wc -l)"

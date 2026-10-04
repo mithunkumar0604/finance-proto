@@ -6,6 +6,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { collateralToRow } from "../src/lib/data/mappers";
+import { loginEmail } from "../src/lib/data/supabase";
 import { buildDemoDB, DEMO_USERS } from "../src/lib/demo-data";
 
 const url = process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:56321";
@@ -34,7 +35,7 @@ async function main() {
   // Logins: mobile number + password, as the sign-in screen expects.
   const userId = new Map<string, string>();
   for (const u of DEMO_USERS) {
-    const { data, error } = await db.auth.admin.createUser({ email: `${u.phone}@ledgerpro.app`, password: LOCAL_PASSWORD, email_confirm: true });
+    const { data, error } = await db.auth.admin.createUser({ email: loginEmail(u.phone), password: LOCAL_PASSWORD, email_confirm: true });
     if (error || !data.user) throw new Error(`user ${u.name}: ${error?.message}`);
     userId.set(u.id, data.user.id);
   }

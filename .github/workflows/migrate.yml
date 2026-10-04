@@ -1,0 +1,36 @@
+name: Apply database changes
+
+# Applies new files in supabase/migrations to the production database.
+# Started by hand, and only after a fresh backup has been taken.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to change the production database'
+        required: true
+
+jobs:
+  backup-first:
+    if: inputs.confirm == 'apply'
+    uses: ./.github/workflows/backup.yml
+    secrets: inherit
+
+  migrate:
+    needs: backup-first
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Show what will be applied
+        run: npx supabase migration list --db-url "$DB_URL"
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      - name: Apply
+        run: npx supabase db push --db-url "$DB_URL"
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}

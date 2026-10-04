@@ -29,6 +29,71 @@ end $$;
 
 create trigger customers_log_insert after insert on public.customers for each row execute function public.log_new_customer();
 
+create or replace function public.guard_customer_update() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before jsonb := to_jsonb(old) - 'updated_at';
+  v_after jsonb := to_jsonb(new) - 'updated_at';
+begin
+  if new.collector_id is distinct from old.collector_id and public.app_role() is distinct from 'owner' and auth.uid() is not null then
+    raise exception 'NOT_ALLOWED: only the owner can change which collector a customer belongs to';
+  end if;
+  if v_before is distinct from v_after then
+    perform public.log_activity('customer', 'Edited customer ' || new.name, null, new.id,
+      jsonb_build_object(
+        'before', (select jsonb_object_agg(key, value) from jsonb_each(v_before) where v_after -> key is distinct from value),
+        'after', (select jsonb_object_agg(key, value) from jsonb_each(v_after) where v_before -> key is distinct from value)));
+  end if;
+  return new;
+end $$;
+
+create trigger customers_guard_update before update on public.customers for each row execute function public.guard_customer_update();
+
+-- ---------------------------------------------------------------------------
+-- The next collection is the one thing the database works out for itself, so that
+-- nobody can open a "next collection" of their own making (nothing due, or due in
+-- 2099). These two functions mirror periodInterest() and nextDueDate() in
+-- src/lib/finance/engine.ts. tests/db checks that both sides give the same answers.
+-- IF AN INTEREST RULE CHANGES, CHANGE IT IN BOTH PLACES.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.period_interest(p_style text, p_value numeric, p_method text, p_amount bigint, p_left bigint)
+returns bigint language plpgsql immutable as $$
+declare
+  v_base bigint;
+  v_rate bigint;
+  v_interest bigint;
+begin
+  if p_style <> 'percent' then
+    return p_value::bigint;
+  end if;
+  v_base := case when p_method = 'fixed' then p_amount else p_left end;
+  v_rate := round(p_value * 10000)::bigint;
+  -- nearest whole rupee, half a rupee rounding up
+  v_interest := div(v_base::numeric * v_rate + 50000000, 100000000)::bigint * 100;
+  if v_interest = 0 and v_base > 0 and v_rate > 0 then
+    return 100;
+  end if;
+  return v_interest;
+end $$;
+
+create or replace function public.next_due_date(p_from date, p_frequency text, p_anchor date)
+returns date language plpgsql immutable as $$
+declare
+  n integer := 1;
+begin
+  if p_frequency <> 'monthly' then
+    return p_from + case p_frequency when 'weekly' then 7 when '15days' then 15 else 30 end;
+  end if;
+  if p_anchor is null or p_anchor > p_from then
+    return (p_from + interval '1 month')::date;
+  end if;
+  while n < 2400 and (p_anchor + make_interval(months => n))::date <= p_from loop
+    n := n + 1;
+  end loop;
+  return (p_anchor + make_interval(months => n))::date;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- New loan
 -- ---------------------------------------------------------------------------
@@ -64,8 +129,14 @@ begin
   if (p_first_due ->> 'due_date')::date <= v_start then
     raise exception 'INVALID_DUE: the first collection must be after the loan date';
   end if;
-  if (p_first_due ->> 'principal_amount')::bigint > v_amount then
-    raise exception 'INVALID_DUE: the first collection asks for more principal than was given';
+  if (p_first_due ->> 'due_date')::date <> public.next_due_date(v_start, p_loan ->> 'frequency', v_start)
+     or (p_first_due ->> 'interest_amount')::bigint <> public.period_interest(p_loan ->> 'interest_style', (p_loan ->> 'interest_value')::numeric,
+          p_loan ->> 'interest_method', v_amount, v_amount)
+     or (p_first_due ->> 'principal_amount')::bigint <> least(coalesce((p_loan ->> 'principal_per_due')::bigint, 0), v_amount) then
+    raise exception 'MISMATCH: the first collection does not match the loan terms. Nothing was saved';
+  end if;
+  if (p_first_due ->> 'interest_amount')::bigint + (p_first_due ->> 'principal_amount')::bigint <= 0 then
+    raise exception 'INVALID_TERMS: set an interest amount or a principal amount for each collection';
   end if;
 
   insert into public.loans (customer_id, type, amount, start_date, reference, interest_style, interest_value, interest_method,
@@ -119,6 +190,8 @@ declare
   d jsonb;
   v_old public.dues;
   v_id uuid;
+  v_paid_due public.dues;
+  v_waived bigint := 0;
 begin
   if v_role is null or v_role = 'staff' then
     raise exception 'NOT_ALLOWED: you cannot record payments';
@@ -157,9 +230,20 @@ begin
   if v_principal > v_loan.principal_left then
     raise exception 'PRINCIPAL_TOO_LARGE: this is more than the principal left on the loan';
   end if;
+  if length(coalesce(p_payment ->> 'note', '')) > 500 then
+    raise exception 'INVALID_NOTE: the note is too long';
+  end if;
+  -- the collection this payment is for must be one of this loan's
+  if p_payment ->> 'due_id' is not null and not exists (
+       select 1 from public.dues x where x.id = (p_payment ->> 'due_id')::uuid and x.loan_id = p_loan_id) then
+    raise exception 'DUE_MISMATCH: this collection belongs to a different loan';
+  end if;
 
   v_left := v_loan.principal_left - v_principal;
   v_closed := v_left = 0;
+  if v_closed and v_date < coalesce((select max(payment_date) from public.payments where loan_id = p_loan_id and reversed_at is null), v_date) then
+    raise exception 'BEFORE_LAST_PAYMENT: the loan cannot be closed on a date before its latest payment';
+  end if;
   if (p_loan ->> 'principal_left')::bigint is distinct from v_left
      or (p_loan ->> 'status') is distinct from (case when v_closed then 'closed' else 'active' end) then
     raise exception 'MISMATCH: the amounts do not add up. Nothing was saved';
@@ -185,9 +269,17 @@ begin
       end if;
       v_interest_delta := v_interest_delta + (d ->> 'interest_paid')::bigint - v_old.interest_paid;
       v_principal_delta := v_principal_delta + ((d ->> 'paid')::bigint - (d ->> 'interest_paid')::bigint) - (v_old.paid - v_old.interest_paid);
-      if (d ->> 'interest_paid')::bigint < v_old.interest_paid or (d ->> 'paid')::bigint < v_old.paid then
+      if (d ->> 'interest_paid')::bigint < v_old.interest_paid or (d ->> 'paid')::bigint < v_old.paid
+         or (d ->> 'paid')::bigint - (d ->> 'interest_paid')::bigint < v_old.paid - v_old.interest_paid
+         or (d ->> 'waived')::bigint < v_old.waived then
         raise exception 'MISMATCH: a payment cannot reduce what was already paid';
       end if;
+      -- the last-paid date only changes on the collection that received money, and only to this payment's date
+      if (d ->> 'last_paid_date')::date is distinct from v_old.last_paid_date
+         and ((d ->> 'last_paid_date')::date is distinct from v_date or (d ->> 'paid')::bigint = v_old.paid) then
+        raise exception 'MISMATCH: the last-paid date does not match this payment';
+      end if;
+      v_waived := v_waived + (d ->> 'waived')::bigint - v_old.waived;
       -- amounts and the due date of an existing collection are never changed here
       update public.dues set
         paid = (d ->> 'paid')::bigint,
@@ -204,8 +296,19 @@ begin
       if (d ->> 'paid')::bigint <> 0 or (d ->> 'interest_paid')::bigint <> 0 or coalesce((d ->> 'waived')::bigint, 0) <> 0 then
         raise exception 'MISMATCH: a new collection must start unpaid';
       end if;
-      if (d ->> 'principal_amount')::bigint > v_left then
-        raise exception 'MISMATCH: the next collection asks for more principal than is left';
+      -- It must be exactly the collection the loan's terms give: the next date after the
+      -- collection just paid, interest on the balance now left, the loan's principal part.
+      select * into v_paid_due from public.dues where id = (p_payment ->> 'due_id')::uuid and loan_id = p_loan_id;
+      if not found or v_paid_due.remaining > 0 then
+        raise exception 'MISMATCH: a new collection opens only when the current one is fully paid';
+      end if;
+      if (d ->> 'due_date')::date is distinct from public.next_due_date(coalesce(v_paid_due.original_date, v_paid_due.due_date), v_loan.frequency, v_loan.start_date)
+         or (d ->> 'interest_amount')::bigint is distinct from public.period_interest(v_loan.interest_style, v_loan.interest_value, v_loan.interest_method, v_loan.amount, v_left)
+         or (d ->> 'principal_amount')::bigint is distinct from least(v_loan.principal_per_due, v_left) then
+        raise exception 'MISMATCH: the next collection does not match the loan terms. Nothing was saved';
+      end if;
+      if (d ->> 'interest_amount')::bigint + (d ->> 'principal_amount')::bigint <= 0 then
+        raise exception 'INVALID_TERMS: the next collection would be for nothing. Check the loan terms';
       end if;
       insert into public.dues (id, loan_id, due_date, interest_amount, principal_amount)
       values (v_id, p_loan_id, (d ->> 'due_date')::date, (d ->> 'interest_amount')::bigint, (d ->> 'principal_amount')::bigint);
@@ -218,6 +321,11 @@ begin
   end if;
   if v_principal_delta > v_principal or v_principal_delta < 0 then
     raise exception 'MISMATCH: principal received does not match the collection. Nothing was saved';
+  end if;
+  -- a new collection never opens while an older one still has money pending
+  if array_length(v_new_ids, 1) = 1 and exists (select 1 from public.dues x where x.loan_id = p_loan_id and x.id <> v_new_ids[1]
+                                                 and not x.cancelled and x.remaining > 0) then
+    raise exception 'MISMATCH: unexpected new collection';
   end if;
   if not v_closed and array_length(v_new_ids, 1) is null
      and not exists (select 1 from public.dues x where x.loan_id = p_loan_id and not x.cancelled
@@ -244,10 +352,11 @@ begin
   perform public.log_activity('payment',
     'Received ' || public.rupee_text(v_interest + v_principal + v_other) || ' from ' || v_customer.name || ' · ' || p_loan_id
       || case when v_closed then ' · Loan closed' else '' end
+      || case when v_waived > 0 then ' · ' || public.rupee_text(v_waived) || ' written off' else '' end
       || case when v_date < v_today then ' · backdated to ' || to_char(v_date, 'DD Mon YYYY') else '' end,
     p_loan_id, v_loan.customer_id,
     jsonb_build_object('payment_id', p_payment ->> 'id', 'interest', v_interest, 'principal', v_principal, 'other', v_other,
-      'principal_before', v_loan.principal_left, 'principal_after', v_left));
+      'principal_before', v_loan.principal_left, 'principal_after', v_left, 'written_off', v_waived, 'dues', p_dues));
 
   return jsonb_build_object('payment_id', p_payment ->> 'id', 'recorded_on', v_today, 'version', v_loan.version + 1, 'duplicate', false);
 end $$;
@@ -352,8 +461,14 @@ begin
   if v_loan.status <> 'active' or v_due.cancelled or v_due.interest_amount + v_due.principal_amount - v_due.paid - v_due.waived <= 0 then
     raise exception 'NOTHING_DUE: there is nothing left to collect on this date';
   end if;
-  if p_new_date is null or p_new_date < public.today_ist() then
+  if p_new_date is null or not isfinite(p_new_date) or p_new_date < public.today_ist() then
     raise exception 'PAST_DATE: choose today or a later date';
+  end if;
+  if p_new_date > public.today_ist() + 365 then
+    raise exception 'TOO_FAR: choose a date within one year';
+  end if;
+  if length(coalesce(p_reason, '')) > 500 then
+    raise exception 'INVALID_NOTE: the reason is too long';
   end if;
 
   update public.dues set
@@ -425,6 +540,8 @@ begin
 end $$;
 
 revoke execute on all functions in schema public from public, anon;
+-- test hook: lets tests/db compare these with the engine (not callable from the app)
+grant execute on function public.period_interest(text, numeric, text, bigint, bigint), public.next_due_date(date, text, date) to service_role;
 grant execute on function
   public.create_loan(uuid, jsonb, jsonb, jsonb),
   public.record_payment(uuid, text, integer, jsonb, jsonb, jsonb),

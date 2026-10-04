@@ -451,3 +451,138 @@ describe("private documents", () => {
     expect((await owner.db.storage.from("documents").upload(`${loanId}/a.exe`, exe)).error).not.toBeNull();
   });
 });
+
+describe("the next collection is worked out by the database itself", () => {
+  it("refuses a next collection with a made-up date, amount or principal part", async () => {
+    for (const change of [
+      (d: Record<string, unknown>) => (d.due_date = "2099-01-01"),
+      (d: Record<string, unknown>) => (d.due_date = "infinity"),
+      (d: Record<string, unknown>) => (d.interest_amount = 0),
+      (d: Record<string, unknown>) => (d.interest_amount = rupees(9000)),
+      (d: Record<string, unknown>) => (d.principal_amount = rupees(500)),
+    ]) {
+      const { loanId } = await newLoan();
+      const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }, { tamper: (a) => change(a.p_dues.find((x: { paid: number }) => x.paid === 0)) });
+      expect(res.error, JSON.stringify(res.data)).not.toBeNull();
+      expect(await paymentsOf(loanId)).toHaveLength(0);
+      expect((await readLoan(owner.db, loanId)).dues).toHaveLength(1);
+    }
+  });
+
+  it("refuses a new collection while the current one still has money pending", async () => {
+    const { loanId } = await newLoan();
+    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, {
+      tamper: (a) => a.p_dues.push({ id: randomUUID(), due_date: shift(TODAY, 30), interest_amount: rupees(3000), principal_amount: 0, paid: 0, interest_paid: 0, waived: 0, last_paid_date: null, cancelled: false }),
+    });
+    expect(codeOf(res)).toBe("MISMATCH");
+  });
+
+  it("refuses a first collection that does not match the loan terms", async () => {
+    const customerId = await addCustomer(owner.db, "Odd Terms");
+    const draft = monthly(customerId);
+    const res = await owner.db.rpc("create_loan", {
+      p_key: randomUUID(),
+      p_loan: { customer_id: customerId, type: "monthly", amount: draft.amount, start_date: draft.startDate, interest_style: "percent", interest_value: 3, interest_method: "reducing", frequency: "monthly", principal_per_due: 0 },
+      p_first_due: { id: randomUUID(), due_date: "2099-01-01", interest_amount: 0, principal_amount: 0 },
+    });
+    expect(codeOf(res)).toBe("MISMATCH");
+  });
+
+  it("works interest out exactly as the engine in the app does", async () => {
+    const { periodInterest } = await import("../../src/lib/finance/engine");
+    const cases: [string, number, string, number, number][] = [
+      ["percent", 3, "reducing", rupees(100000), rupees(60000)],
+      ["percent", 3, "fixed", rupees(100000), rupees(60000)],
+      ["percent", 2.5, "reducing", rupees(33333), rupees(33333)],
+      ["percent", 1.5, "reducing", rupees(100033), rupees(100033)],
+      ["percent", 1.5, "reducing", rupees(100034), rupees(100034)],
+      ["percent", 1, "reducing", rupees(50), rupees(50)],
+      ["percent", 3, "reducing", rupees(100000), rupees(10)],
+      ["percent", 1.15, "fixed", rupees(5_000_000_000), rupees(1)],
+      ["percent", 3, "manual", rupees(100000), rupees(80000)],
+      ["percent", 0, "reducing", rupees(100000), rupees(100000)],
+      ["fixed", 600050, "fixed", rupees(100000), rupees(100000)],
+      ["custom", rupees(750), "manual", rupees(100000), rupees(100000)],
+    ];
+    for (const [style, value, method, amount, left] of cases) {
+      const db = await admin.rpc("period_interest", { p_style: style, p_value: value, p_method: method, p_amount: amount, p_left: left });
+      expect(db.error).toBeNull();
+      const app = periodInterest({ interest: { style, value, method } as never, amount, principalLeft: left });
+      expect(db.data, `${style} ${value} ${method} on ${left}`).toBe(app);
+    }
+  });
+
+  it("works collection dates out exactly as the engine in the app does", async () => {
+    const { nextDueDate } = await import("../../src/lib/finance/engine");
+    const cases: [string, string, string][] = [
+      ["2026-01-31", "monthly", "2026-01-31"],
+      ["2026-02-28", "monthly", "2026-01-31"],
+      ["2026-03-31", "monthly", "2026-01-31"],
+      ["2028-02-29", "monthly", "2027-12-31"],
+      ["2026-09-10", "monthly", "2026-06-10"],
+      ["2026-09-15", "monthly", "2026-06-10"],
+      ["2026-12-30", "monthly", "2026-08-30"],
+      ["2026-09-01", "weekly", "2026-08-01"],
+      ["2026-09-01", "15days", "2026-08-01"],
+      ["2026-09-01", "30days", "2026-08-01"],
+      ["2026-09-01", "custom", "2026-08-01"],
+    ];
+    for (const [from, freq, anchor] of cases) {
+      const db = await admin.rpc("next_due_date", { p_from: from, p_frequency: freq, p_anchor: anchor });
+      expect(db.error).toBeNull();
+      expect(db.data, `${from} ${freq} anchor ${anchor}`).toBe(nextDueDate(from, freq as never, 1, anchor));
+    }
+  });
+});
+
+describe("more points from the security review", () => {
+  it("interest written off at settlement is shown in the activity log", async () => {
+    const { loanId } = await newLoan();
+    expect((await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: rupees(100000), other: 0 })).error).toBeNull();
+    const log = await owner.db.from("activity").select("text,data").eq("loan_id", loanId).eq("kind", "payment").single();
+    expect(log.data!.text).toContain("₹2,000 written off");
+    expect(log.data!.data.written_off).toBe(rupees(2000));
+  });
+
+  it("refuses to close a loan on a date before its latest payment", async () => {
+    const { loanId } = await newLoan();
+    await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 });
+    const res = await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(100000), other: 0 }, {
+      tamper: (a) => {
+        a.p_payment.date = shift(TODAY, -10);
+        a.p_loan.closed_date = shift(TODAY, -10);
+      },
+    });
+    expect(codeOf(res)).toBe("BEFORE_LAST_PAYMENT");
+  });
+
+  it("customer edits are logged, and only the owner can move a customer to another collector", async () => {
+    const customerId = await addCustomer(owner.db, "Audit Me", collector.id);
+    expect((await staff.db.from("customers").update({ phone: "9111111111" }).eq("id", customerId).select()).data).toHaveLength(1);
+    const log = await owner.db.from("activity").select("text,data").eq("customer_id", customerId).order("id", { ascending: false }).limit(1).single();
+    expect(log.data!.text).toBe("Edited customer Audit Me");
+    expect(log.data!.data).toMatchObject({ before: { phone: "9000000000" }, after: { phone: "9111111111" } });
+
+    expect((await staff.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).error?.message).toMatch(/NOT_ALLOWED/);
+    expect((await owner.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).data).toHaveLength(1);
+  });
+
+  it("a collection date cannot be moved into the past or years ahead", async () => {
+    const { loanId } = await newLoan();
+    const { dues } = await readLoan(owner.db, loanId);
+    expect(codeOf(await owner.db.rpc("reschedule_due", { p_due_id: dues[0].id, p_new_date: shift(TODAY, -1), p_reason: "x" }))).toBe("PAST_DATE");
+    expect(codeOf(await owner.db.rpc("reschedule_due", { p_due_id: dues[0].id, p_new_date: "2099-01-01", p_reason: "x" }))).toBe("TOO_FAR");
+    expect(codeOf(await owner.db.rpc("reschedule_due", { p_due_id: dues[0].id, p_new_date: "infinity", p_reason: "x" }))).toBe("PAST_DATE");
+  });
+
+  it("helper functions cannot be called from the app", async () => {
+    for (const [fn, args] of [
+      ["log_activity", { p_kind: "system", p_text: "fake", p_loan_id: null, p_customer_id: null }],
+      ["set_id_counters", { p_customer: 1, p_loan: 1 }],
+      ["period_interest", { p_style: "fixed", p_value: 1, p_method: "fixed", p_amount: 1, p_left: 1 }],
+    ] as const) {
+      expect((await owner.db.rpc(fn, args)).error, fn).not.toBeNull();
+      expect((await anon.rpc(fn, args)).error, fn).not.toBeNull();
+    }
+  });
+});

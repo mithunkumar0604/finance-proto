@@ -8,6 +8,7 @@ import { Avatar, Chip, StatusChip } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { Field, Input, MoneyInput, PillSelect } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
+import { toast } from "@/components/ui/toast";
 import {
   dueInterestLeft,
   dueRemaining,
@@ -187,7 +188,7 @@ function PaymentForm({
   const [saveKey] = useState(newKey);
   const { busy, run } = useSave();
 
-  // DEMO: how the money is counted in each mode (rules live in lib/finance/engine).
+  // How the money is counted in each mode (the rules themselves live in lib/finance/engine).
   let split: Allocation;
   if (mode === "settle") {
     const a = adj || 0;
@@ -201,6 +202,15 @@ function PaymentForm({
   } else {
     split = manual ?? suggestAllocation(amount || 0, loan, due);
   }
+  // What was typed must be what is recorded: an amount that does not fit is refused, never trimmed quietly.
+  const problem =
+    (mode === "principal" || mode === "both") && (principalAmt || 0) > loan.principalLeft
+      ? `This is more than the principal left (${money(loan.principalLeft)}).`
+      : mode === "both" && (interestAmt || 0) > interestDue
+        ? `This is more than the interest due (${money(interestDue)}). Put the extra under Adjustment.`
+        : mode === "settle" && adjLess && (adj || 0) > interestDue
+          ? `You cannot take off more than the interest due (${money(interestDue)}).`
+          : "";
   const total = split.interest + split.principal + split.other;
   const principalAfter = Math.max(0, loan.principalLeft - split.principal);
   const interestAfter = Math.max(0, interestDue - split.interest);
@@ -209,6 +219,9 @@ function PaymentForm({
   const choose = (m: Mode) => {
     setMode(m);
     setManual(null);
+    // the adjustment box is shared by Full Settlement and Adjustment: never carry one into the other
+    setAdj("");
+    setAdjLess(false);
     if (m === "interest") setAmount(remaining);
     if (m === "part") {
       setAmount("");
@@ -218,6 +231,7 @@ function PaymentForm({
   };
 
   const confirm = async () => {
+    if (problem) return toast(problem, "error");
     const result = await run(() =>
       actions.receivePayment(
         {

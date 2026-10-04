@@ -70,7 +70,7 @@ export type Security = JewelSecurity | VehicleSecurity | DocumentSecurity | Othe
 
 export interface InterestSetting {
   style: InterestStyle;
-  /** Percent (e.g. 3 for 3%) when style = percent, rupees when style = fixed. */
+  /** Percent (e.g. 3 for 3%) when style = percent; otherwise an amount in whole paise. */
   value: number;
   method: InterestMethod;
 }
@@ -79,7 +79,7 @@ export interface Loan {
   id: string; // "LP-1024"
   customerId: string;
   type: LoanType;
-  amount: number; // money given
+  amount: number; // money given, in paise (every amount in these types is whole paise)
   startDate: ISODate;
   reference?: string;
   interest: InterestSetting;
