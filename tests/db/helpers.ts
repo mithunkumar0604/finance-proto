@@ -70,6 +70,12 @@ export async function giveLoan(db: SupabaseClient, terms: Terms, key = randomUUI
   });
 }
 
+/** Brings one loan's collections up to today, as the app does when it opens. */
+export async function accrue(loanId: string) {
+  const { error } = await admin.rpc("accrue_dues", { p_loan_id: loanId });
+  if (error) throw new Error(error.message);
+}
+
 export async function readLoan(db: SupabaseClient, loanId: string) {
   const [loan, dues] = await Promise.all([
     db.from("loans").select("*").eq("id", loanId).single(),
@@ -90,6 +96,7 @@ export interface PayOptions {
 
 /** Records a payment the way the app does: engine first, then the database function. */
 export async function pay(db: SupabaseClient, loanId: string, input: Omit<PaymentInput, "loanId" | "method"> & { method?: PaymentInput["method"] }, o: PayOptions = {}) {
+  if (!o.from) await accrue(loanId);
   const { loan, dues } = o.from ?? (await readLoan(db, loanId));
   const now = await today(db);
   const result: PaymentResult = applyPayment(loan, dues, { method: "cash", ...input, loanId }, { paymentId: randomUUID(), nextDueId: randomUUID() }, now);
@@ -100,8 +107,10 @@ export async function pay(db: SupabaseClient, loanId: string, input: Omit<Paymen
     p_loan_id: loanId,
     p_version: loan.version,
     p_payment: { id: p.id, due_id: p.dueId ?? null, date: p.date, interest: p.interest, principal: p.principal, other: p.other, method: p.method, note: p.note ?? null },
-    p_loan: { principal_left: result.loan.principalLeft, status: result.loan.status, closed_date: result.loan.closedDate ?? null },
-    p_dues: result.dues.filter((d) => before.get(d.id) !== JSON.stringify(d)).map(dueToRow),
+    p_loan: { principal_left: result.loan.principalLeft, status: result.loan.status },
+    // only collections the database already has; it opens new ones itself
+    p_dues: result.dues.filter((d) => before.has(d.id) && before.get(d.id) !== JSON.stringify(d)).map(dueToRow),
+    p_waive_reason: input.waiveReason ?? null,
   };
   o.tamper?.(args);
   const res = await db.rpc("record_payment", args);

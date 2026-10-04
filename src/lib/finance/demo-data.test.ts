@@ -23,7 +23,7 @@ describe("demo data built through the engine", () => {
     for (const l of db.loans) {
       const principalPaid = db.payments.filter((p) => p.loanId === l.id).reduce((a, p) => a + p.principal, 0);
       expect(l.principalLeft, l.id).toBe(l.amount - principalPaid);
-      expect(l.status === "closed", l.id).toBe(l.principalLeft === 0);
+      if (l.status === "closed") expect(l.principalLeft, l.id).toBe(0);
     }
   });
 

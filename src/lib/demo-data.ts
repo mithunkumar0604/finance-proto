@@ -3,7 +3,7 @@
 // and history is produced by running the same payment logic the UI uses.
 // Amounts in the specs below are written in rupees and converted to paise when built.
 
-import { applyPayment, buildDue, openDue, previousDueDate } from "./finance/engine";
+import { accrueDues, applyPayment, buildDue, openDue, previousDueDate } from "./finance/engine";
 import { rupees } from "./finance/money";
 import { shiftISO } from "./format";
 import type {
@@ -310,9 +310,11 @@ export function buildDemoDB(today: ISODate): DemoDB {
       const res = applyPayment(
         loan,
         loanDues,
-        { loanId: loan.id, date, recordedOn: recordedOn ?? date, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)], note },
+        // history is replayed as it happened: each payment goes to the collection then open
+        { loanId: loan.id, dueId: openDue(loanDues)?.id, date, recordedOn: recordedOn ?? date, interest, principal, other: 0, method: METHODS[Math.floor(r() * METHODS.length)], note },
         { paymentId: pid(), nextDueId: did() },
-        today,
+        // "today" for a past payment is the day it was made, so no later period exists yet
+        date,
       );
       loan = res.loan;
       loanDues = res.dues;
@@ -356,6 +358,9 @@ export function buildDemoDB(today: ISODate): DemoDB {
         }
       }
     }
+
+    // Bring the loan up to today: every period missed since its last collection is pending.
+    loanDues = accrueDues(loan, loanDues, today, did);
 
     loans.push(loan);
     dues.push(...loanDues);

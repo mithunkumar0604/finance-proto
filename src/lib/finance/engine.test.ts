@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Due, Loan } from "../types";
 import {
+  accrueDues,
   applyPayment,
   buildDue,
   dueInterestLeft,
@@ -38,7 +39,8 @@ function loan(over: Partial<Loan> = {}): Loan {
   };
 }
 
-function firstDue(l: Loan, date = "2026-09-01"): Due {
+/** One collection, still coming (today is 29 September), unless a date is given. */
+function firstDue(l: Loan, date = "2026-10-01"): Due {
   return buildDue(l, date, "D1");
 }
 
@@ -92,7 +94,7 @@ describe("1. interest-only payment", () => {
     expect(dueStatus(due, TODAY)).toBe("paid");
   });
   it("creates the next period's collection", () => {
-    expect(r.nextDue).toMatchObject({ id: "D2", dueDate: "2026-10-01", interestAmount: rupees(3000), principalAmount: 0, paid: 0 });
+    expect(r.nextDue).toMatchObject({ id: "D2", dueDate: "2026-11-01", interestAmount: rupees(3000), principalAmount: 0, paid: 0 });
   });
   it("records the payment with its split", () => {
     expect(r.payment).toMatchObject({ id: "P1", loanId: "LP-1", customerId: "C1", interest: rupees(3000), principal: 0, other: 0, principalBefore: rupees(100000), dueId: "D1" });
@@ -114,13 +116,13 @@ describe("2. partial interest payment", () => {
   });
   it("leaves the principal unchanged and does not open a new period", () => {
     expect(r.loan.principalLeft).toBe(rupees(100000));
-    expect(r.nextDue).toBeUndefined();
+    expect(r.nextDue?.id).toBe("D1");
     expect(r.dues).toHaveLength(1);
   });
   it("a later payment of the rest clears the period", () => {
     const r2 = applyPayment(r.loan, r.dues, pay({ interest: rupees(1000), date: "2026-09-10", recordedOn: "2026-09-10" }), { paymentId: "P2", nextDueId: "D2" }, TODAY);
     expect(dueInterestLeft(r2.dues[0])).toBe(0);
-    expect(r2.nextDue?.dueDate).toBe("2026-10-01");
+    expect(r2.nextDue?.dueDate).toBe("2026-11-01");
   });
 });
 
@@ -130,7 +132,7 @@ describe("3. full principal settlement", () => {
   const r = applyPayment(l, [due], pay({ interest: rupees(3000), principal: rupees(100000), date: "2026-09-20", recordedOn: "2026-09-20" }), IDS, TODAY);
 
   it("asks for interest due plus all principal left", () => {
-    expect(settlementAmount(l, due)).toBe(rupees(103000));
+    expect(settlementAmount(l, [due])).toBe(rupees(103000));
   });
   it("closes the loan and records the closed date", () => {
     expect(r.loan.principalLeft).toBe(0);
@@ -144,12 +146,14 @@ describe("3. full principal settlement", () => {
     expect(projectDues(r.loan, r.dues, "2027-12-31")).toEqual([]);
     expect(loanSchedule(r.loan, r.dues)).toBeNull();
   });
-  it("closing without the interest records it as waived, not as received", () => {
+  it("returning all principal without the interest does not close the loan or clear the interest", () => {
     const r2 = applyPayment(l, [due], pay({ principal: rupees(100000) }), IDS, TODAY);
     const d = r2.dues[0];
+    expect(r2.closed).toBe(false);
+    expect(r2.loan.status).toBe("active");
     expect(d.interestPaid).toBe(0);
-    expect(d.waived).toBe(rupees(3000));
-    expect(dueRemaining(d)).toBe(0);
+    expect(d.waived ?? 0).toBe(0);
+    expect(dueRemaining(d)).toBe(rupees(3000));
   });
 });
 
@@ -163,11 +167,11 @@ describe("4. partial principal payment", () => {
   });
   it("does not count as paying the interest that is still due", () => {
     expect(dueInterestLeft(r.dues[0])).toBe(rupees(3000));
-    expect(r.nextDue).toBeUndefined();
+    expect(r.dues).toHaveLength(1);
   });
   it("the next period's interest is worked out on the new balance", () => {
     const r2 = applyPayment(r.loan, r.dues, pay({ interest: rupees(3000) }), { paymentId: "P2", nextDueId: "D2" }, TODAY);
-    expect(r2.nextDue?.interestAmount).toBe(rupees(1800));
+    expect(r2.nextDue).toMatchObject({ id: "D2", interestAmount: rupees(1800) });
   });
 });
 
@@ -249,7 +253,7 @@ describe("amount checks", () => {
 
 describe("instalment loans (principal with each collection)", () => {
   const l = loan({ type: "weekly", frequency: "weekly", amount: rupees(15000), principalLeft: rupees(15000), principalPerDue: rupees(3000), interest: { style: "fixed", value: rupees(300), method: "fixed" }, startDate: "2026-08-25" });
-  const due = firstDue(l);
+  const due = firstDue(l, "2026-09-01");
 
   it("has an end date and a total to collect", () => {
     const s = loanSchedule(l, [due])!;
@@ -265,8 +269,8 @@ describe("instalment loans (principal with each collection)", () => {
     expect(dueRemaining(r.dues[0])).toBe(rupees(300));
   });
   it("paying the last instalment closes the loan", () => {
-    const last = loan({ ...l, principalLeft: rupees(3000) });
-    const r = applyPayment(last, [firstDue(last)], pay({ interest: rupees(300), principal: rupees(3000) }), IDS, TODAY);
+    const last = loan({ ...l, principalLeft: rupees(3000), startDate: "2026-09-24" });
+    const r = applyPayment(last, [firstDue(last)], pay({ date: "2026-09-28", recordedOn: "2026-09-28", interest: rupees(300), principal: rupees(3000) }), IDS, TODAY);
     expect(r.closed).toBe(true);
     expect(r.dues[0].waived ?? 0).toBe(0);
   });
@@ -275,7 +279,7 @@ describe("instalment loans (principal with each collection)", () => {
 describe("interest-only loans", () => {
   it("have no end date", () => {
     const l = loan();
-    const s = loanSchedule(l, [firstDue(l)])!;
+    const s = loanSchedule(l, [firstDue(l, "2026-09-01")])!;
     expect(s.interestOnly).toBe(true);
     expect(s.endsOn).toBeUndefined();
     expect(s.rows).toHaveLength(3);
@@ -286,9 +290,9 @@ describe("suggested split of a received amount", () => {
   it("fills interest due first, then principal, rest as other", () => {
     const l = loan();
     const due = firstDue(l);
-    expect(suggestAllocation(rupees(2000), l, due)).toEqual({ interest: rupees(2000), principal: 0, other: 0 });
-    expect(suggestAllocation(rupees(46000), l, due)).toEqual({ interest: rupees(3000), principal: rupees(43000), other: 0 });
-    expect(suggestAllocation(rupees(104000), l, due)).toEqual({ interest: rupees(3000), principal: rupees(100000), other: rupees(1000) });
+    expect(suggestAllocation(rupees(2000), l, [due])).toEqual({ interest: rupees(2000), principal: 0, other: 0 });
+    expect(suggestAllocation(rupees(46000), l, [due])).toEqual({ interest: rupees(3000), principal: rupees(43000), other: 0 });
+    expect(suggestAllocation(rupees(104000), l, [due])).toEqual({ interest: rupees(3000), principal: rupees(100000), other: rupees(1000) });
   });
 });
 
@@ -299,17 +303,10 @@ describe("monthly dates keep to the day the loan was given", () => {
     expect(nextDueDate("2026-03-31", "monthly", 1, "2026-01-31")).toBe("2026-04-30");
     expect(nextDueDate("2026-04-30", "monthly", 1, "2026-01-31")).toBe("2026-05-31");
   });
-  it("paying each month does not let the date drift", () => {
-    let l = loan({ startDate: "2026-01-31" });
-    let dues = [buildDue(l, nextDueDate(l.startDate, l.frequency, 1, l.startDate), "D1")];
-    const seen = [dues[0].dueDate];
-    for (let i = 2; i <= 4; i++) {
-      const r = applyPayment(l, dues, pay({ dueId: undefined, date: "2026-02-01", recordedOn: "2026-02-01", interest: rupees(3000) }), { paymentId: `P${i}`, nextDueId: `D${i}` }, TODAY);
-      l = r.loan;
-      dues = r.dues;
-      seen.push(r.nextDue!.dueDate);
-    }
-    expect(seen).toEqual(["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"]);
+  it("the collections of a loan given on the 31st do not drift to the 28th", () => {
+    const l = loan({ startDate: "2026-01-31" });
+    const dates = accrueDues(l, [], TODAY, (n) => `D${n}`).map((d) => d.dueDate);
+    expect(dates).toEqual(["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31", "2026-06-30", "2026-07-31", "2026-08-31", "2026-09-30"]);
   });
   it("a moved date does not shift the dates that follow", () => {
     const l = loan({ startDate: "2026-06-10" });
@@ -331,7 +328,7 @@ describe("edge cases found in review", () => {
   it("refuses to close a loan on a date earlier than its latest payment", () => {
     const l = loan();
     const first = applyPayment(l, [firstDue(l)], pay({ interest: rupees(3000), date: "2026-09-20", recordedOn: "2026-09-20" }), IDS, TODAY);
-    expect(code(() => applyPayment(first.loan, first.dues, pay({ dueId: undefined, principal: rupees(100000), date: "2026-06-05", recordedOn: TODAY }), { paymentId: "P2", nextDueId: "D3" }, TODAY))).toBe("BEFORE_LAST_PAYMENT");
+    expect(code(() => applyPayment(first.loan, first.dues, pay({ dueId: undefined, interest: rupees(3000), principal: rupees(100000), date: "2026-06-05", recordedOn: TODAY }), { paymentId: "P2", nextDueId: "D3" }, TODAY))).toBe("BEFORE_LAST_PAYMENT");
   });
 
   it("a backdated payment never moves a collection's last-paid date backwards", () => {

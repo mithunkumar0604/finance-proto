@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { rupees } from "../../src/lib/finance/money";
-import { addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
+import { accrue, addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
 
 let owner: TestUser;
 let staff: TestUser;
@@ -12,7 +12,8 @@ let collector: TestUser;
 let otherCollector: TestUser;
 let TODAY: string;
 
-const monthly = (customerId: string, amount = rupees(100000), start = shift(TODAY, -100)) => ({
+/** Given 10 days ago unless a start is passed: one collection, still running. */
+const monthly = (customerId: string, amount = rupees(100000), start = shift(TODAY, -10)) => ({
   customerId,
   type: "monthly" as const,
   amount,
@@ -22,9 +23,9 @@ const monthly = (customerId: string, amount = rupees(100000), start = shift(TODA
   principalPerDue: 0,
 });
 
-async function newLoan(amount = rupees(100000), collectorId?: string) {
+async function newLoan(amount = rupees(100000), collectorId?: string, start?: string) {
   const customerId = await addCustomer(owner.db, `Customer ${randomUUID().slice(0, 6)}`, collectorId);
-  const res = await giveLoan(owner.db, monthly(customerId, amount));
+  const res = await giveLoan(owner.db, monthly(customerId, amount, start));
   expect(res.error).toBeNull();
   return { customerId, loanId: res.data.loan_id as string };
 }
@@ -132,7 +133,7 @@ describe("payment scenarios", () => {
   });
 
   it("6. backdated: counted on the payment date, not the day it was entered", async () => {
-    const { loanId } = await newLoan();
+    const { loanId } = await newLoan(rupees(100000), undefined, shift(TODAY, -95));
     const paidOn = shift(TODAY, -42);
     expect((await pay(owner.db, loanId, { date: paidOn, interest: rupees(3000), principal: 0, other: 0 })).error).toBeNull();
     const [p] = await paymentsOf(loanId);
@@ -149,6 +150,7 @@ describe("payment scenarios", () => {
     const future = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }, { tamper: (a) => (a.p_payment.date = shift(TODAY, 1)) });
     expect(codeOf(future)).toBe("FUTURE_DATE");
     const early = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }, { tamper: (a) => (a.p_payment.date = shift(TODAY, -400)) });
+    // (the date is checked before anything else, so the rest of the request does not matter)
     expect(codeOf(early)).toBe("BEFORE_LOAN_START");
     expect(await paymentsOf(loanId)).toHaveLength(0);
   });
@@ -246,10 +248,12 @@ describe("the database re-checks what it is sent", () => {
     expect(await paymentsOf(loanId)).toHaveLength(0);
   });
 
-  it("refuses writing interest off on a loan that is not being settled", async () => {
-    const { loanId } = await newLoan();
-    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, { tamper: (a) => (a.p_dues[0].waived = rupees(2000)) });
-    expect(codeOf(res)).toBe("MISMATCH");
+  it("refuses interest written off without a reason, or by anyone but the owner", async () => {
+    const { loanId } = await newLoan(rupees(100000), collector.id);
+    const sneak = (a: Record<string, any>) => (a.p_dues[0].waived = rupees(2000)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(codeOf(await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, { tamper: sneak }))).toBe("REASON_NEEDED");
+    expect(codeOf(await pay(collector.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, { tamper: (a) => { sneak(a); a.p_waive_reason = "because"; } }))).toBe("NOT_ALLOWED");
+    expect(await paymentsOf(loanId)).toHaveLength(0);
   });
 
   it("refuses zero, negative and too-large amounts", async () => {
@@ -280,13 +284,14 @@ describe("10. corrections keep the history", () => {
 
   it("reversing a settlement reopens the loan", async () => {
     const { loanId } = await newLoan();
-    const paid = await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(100000), other: 0 });
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: rupees(100000), other: 0 });
     expect((await readLoan(owner.db, loanId)).loan.status).toBe("closed");
     expect((await owner.db.rpc("reverse_payment", { p_payment_id: paid.paymentId, p_reason: "Cheque bounced" })).error).toBeNull();
     const { loan, dues } = await readLoan(owner.db, loanId);
     expect(loan).toMatchObject({ status: "active", principalLeft: rupees(100000) });
     expect(loan.closedDate).toBeUndefined();
-    expect(dues[0]).toMatchObject({ waived: 0, cancelled: false });
+    expect(dues[0]).toMatchObject({ waived: 0, cancelled: false, paid: 0 });
+    expect(dues).toHaveLength(1);
   });
 
   it("only the latest payment can be reversed, once, with a reason, by the owner", async () => {
@@ -453,28 +458,29 @@ describe("private documents", () => {
 });
 
 describe("the next collection is worked out by the database itself", () => {
-  it("refuses a next collection with a made-up date, amount or principal part", async () => {
-    for (const change of [
-      (d: Record<string, unknown>) => (d.due_date = "2099-01-01"),
-      (d: Record<string, unknown>) => (d.due_date = "infinity"),
-      (d: Record<string, unknown>) => (d.interest_amount = 0),
-      (d: Record<string, unknown>) => (d.interest_amount = rupees(9000)),
-      (d: Record<string, unknown>) => (d.principal_amount = rupees(500)),
+  it("opens the next collection itself, exactly as the engine expects", async () => {
+    const { loanId } = await newLoan();
+    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: rupees(40000), other: 0 });
+    expect(res.error).toBeNull();
+    const { dues } = await readLoan(owner.db, loanId);
+    expect(dues).toHaveLength(2);
+    expect(dues[1]).toMatchObject({ dueDate: res.result.nextDue!.dueDate, interestAmount: res.result.nextDue!.interestAmount, principalAmount: 0, paid: 0 });
+    expect(dues[1].interestAmount).toBe(rupees(1800));
+  });
+
+  it("refuses a collection it did not create", async () => {
+    for (const made of [
+      { due_date: "2099-01-01", interest_amount: 0 },
+      { due_date: shift(TODAY, 30), interest_amount: rupees(3000) },
     ]) {
       const { loanId } = await newLoan();
-      const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }, { tamper: (a) => change(a.p_dues.find((x: { paid: number }) => x.paid === 0)) });
-      expect(res.error, JSON.stringify(res.data)).not.toBeNull();
+      const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }, {
+        tamper: (a) => a.p_dues.push({ id: randomUUID(), principal_amount: 0, paid: 0, interest_paid: 0, waived: 0, last_paid_date: null, cancelled: false, ...made }),
+      });
+      expect(codeOf(res)).toBe("MISMATCH");
       expect(await paymentsOf(loanId)).toHaveLength(0);
       expect((await readLoan(owner.db, loanId)).dues).toHaveLength(1);
     }
-  });
-
-  it("refuses a new collection while the current one still has money pending", async () => {
-    const { loanId } = await newLoan();
-    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, {
-      tamper: (a) => a.p_dues.push({ id: randomUUID(), due_date: shift(TODAY, 30), interest_amount: rupees(3000), principal_amount: 0, paid: 0, interest_paid: 0, waived: 0, last_paid_date: null, cancelled: false }),
-    });
-    expect(codeOf(res)).toBe("MISMATCH");
   });
 
   it("refuses a first collection that does not match the loan terms", async () => {
@@ -538,19 +544,22 @@ describe("the next collection is worked out by the database itself", () => {
 describe("more points from the security review", () => {
   it("interest written off at settlement is shown in the activity log", async () => {
     const { loanId } = await newLoan();
-    expect((await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: rupees(100000), other: 0 })).error).toBeNull();
+    const { dues } = await readLoan(owner.db, loanId);
+    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: rupees(100000), other: 0, waive: [{ dueId: dues[0].id, amount: rupees(2000) }], waiveReason: "Agreed settlement" });
+    expect(res.error).toBeNull();
+    expect((await readLoan(owner.db, loanId)).loan.status).toBe("closed");
     const log = await owner.db.from("activity").select("text,data").eq("loan_id", loanId).eq("kind", "payment").single();
-    expect(log.data!.text).toContain("₹2,000 written off");
-    expect(log.data!.data.written_off).toBe(rupees(2000));
+    expect(log.data!.text).toContain("₹2,000 interest waived: Agreed settlement");
+    expect(log.data!.data.waived).toBe(rupees(2000));
   });
 
   it("refuses to close a loan on a date before its latest payment", async () => {
     const { loanId } = await newLoan();
     await pay(owner.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 });
-    const res = await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(100000), other: 0 }, {
+    const res = await pay(owner.db, loanId, { date: TODAY, interest: rupees(2000), principal: rupees(100000), other: 0 }, {
       tamper: (a) => {
-        a.p_payment.date = shift(TODAY, -10);
-        a.p_loan.closed_date = shift(TODAY, -10);
+        a.p_payment.date = shift(TODAY, -5);
+        for (const d of a.p_dues) d.last_paid_date = shift(TODAY, -5);
       },
     });
     expect(codeOf(res)).toBe("BEFORE_LAST_PAYMENT");
