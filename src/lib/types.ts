@@ -90,6 +90,8 @@ export interface Loan {
   status: "active" | "closed";
   closedDate?: ISODate;
   security: Security | null;
+  /** Database row version, sent back with every change so two people cannot overwrite each other. */
+  version?: number;
 }
 
 /** One expected collection for a loan. The collection register is built from these. */
