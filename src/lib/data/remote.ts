@@ -21,7 +21,7 @@ import {
 import { loginEmail, supabase } from "./supabase";
 
 const PAGE = 1000;
-const PAYMENT_COLS = "id,loan_id,customer_id,due_id,payment_date,recorded_on,principal_before,interest,principal,other,method,note";
+const PAYMENT_COLS = "id,loan_id,customer_id,due_id,payment_date,recorded_on,recorded_at,principal_before,interest,principal,other,method,note";
 const DUE_COLS = "id,loan_id,due_date,interest_amount,principal_amount,paid,interest_paid,waived,last_paid_date,original_date,reschedule_reason,cancelled";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- supabase query builders are loosely typed */

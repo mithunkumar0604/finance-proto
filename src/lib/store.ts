@@ -509,7 +509,7 @@ async function receive(input: PaymentInput, key: string): Promise<PaymentResult>
     version: saved.version,
     ...(input.interest > 0 && input.date > (loan.lastInterestPaidOn ?? "") ? { lastInterestPaidOn: input.date } : {}),
   };
-  const payment = { ...result.payment, recordedOn: saved.recordedOn };
+  const payment = { ...result.payment, recordedOn: saved.recordedOn, recordedAt: new Date().toISOString() };
   set((st) => ({
     ...st,
     loans: st.loans.map((l) => (l.id === loan.id ? savedLoan : l)),

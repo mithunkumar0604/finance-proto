@@ -134,6 +134,7 @@ export function paymentFromRow(r: Row): Payment {
     customerId: r.customer_id,
     date: r.payment_date,
     recordedOn: r.recorded_on,
+    ...(r.recorded_at ? { recordedAt: r.recorded_at } : {}),
     principalBefore: Number(r.principal_before),
     interest: Number(r.interest),
     principal: Number(r.principal),

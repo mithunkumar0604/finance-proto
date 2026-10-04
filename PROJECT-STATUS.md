@@ -1,126 +1,105 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 3 October 2026.
+Last updated: 4 October 2026.
 
-## What this is
+## Where things stand
 
-A clickable **prototype** of a loan and collection manager for a private finance
-business in India. It is shown to a client to agree the workflow before the real
-product is built. There is **no backend**: all data is fictional demo data kept in the
-browser, and all money calculations are placeholder demo rules.
+The client approved the clickable prototype. It is preserved as tag
+`prototype-approved-v1` (source) and `prototype-approved-v1-site` (the deployed demo).
 
-- Live demo: https://mithunkumar0604.github.io/finance-proto/
-- Repository: https://github.com/mithunkumar0604/finance-proto (`main` = source, `gh-pages` = deployed site)
-- Demo login is pre-filled. Lock-screen PIN: `1234`.
+The `production` branch turns that prototype into a real application, with the
+screens unchanged: real logins, a real database, tested money rules, backups.
+**It is built and tested locally. It is not live yet**, because the hosting accounts
+do not exist yet (see "Needed to go live").
 
-## How the business works (confirmed by the client so far)
+- Demo (prototype, demo data): https://mithunkumar0604.github.io/finance-proto/
+- Repository: https://github.com/mithunkumar0604/finance-proto
+  - `main` = approved prototype source · `gh-pages` = deployed demo
+  - `production` = the production conversion (not merged)
 
-- Most customers pay **interest only**, weekly or monthly. The principal usually stays
-  untouched for a long time.
-- Later the customer may return part of the principal, or settle the loan in full.
-- So the app leads with **Interest paid / Interest pending / Principal Left**.
-  "Principal Paid" is deliberately not a main column anywhere.
-- Payments can be **backdated**. Every payment has a Payment Date and a Recorded Date;
-  all reports count money on the **Payment Date**.
-- The client is not highly computer-literate. Use very simple English and as few
-  screens and choices as possible.
+## How the business works (confirmed by the client)
 
-**Not yet confirmed:** the client's exact interest formulas. Everything in
-`src/lib/demo-calculations.ts` is a stand-in until they are.
+- Most customers pay **interest only**, weekly or monthly. Principal stays untouched
+  until part or all of it is returned. Full return closes the loan.
+- The app leads with **Interest paid / Interest pending / Principal Left**.
+- Payments can be **backdated**. Reports count money on the **payment date**.
+- The client is not highly computer-literate: simple English, few screens, few choices.
 
-## What is built
+## What the production branch adds
 
 | Area | State |
 |---|---|
-| Login, lock screen (PIN), auto-lock, device sessions | Done (prototype) |
-| Home dashboard: today's expected / collected / pending, due list, money outside | Done |
-| Global search: name, phone, vehicle number, loan ID | Done |
-| Collections register: Today / Tomorrow / Overdue / Upcoming, loan-type filter | Done |
-| Customers list and customer profile (loans, payments, documents, notes) | Done |
-| Loans list and loan details with payment timeline, coming collections, end date and collateral | Done |
-| Receive Payment: Pay Interest / Part Payment / Full Settlement; Pay Principal, Principal + Interest, Adjustment under "More options"; backdated dates | Done |
-| Reschedule (move a payment date) | Done |
-| New Customer, New Loan wizard (6 steps; jewel / vehicle / document security) | Done |
-| Security (collateral) register | Done |
-| Reports: one simple screen with PDF download (see below) | Done |
-| Users and roles (Owner / Collector / Staff "view as" demo), activity log, settings | Done (concept only) |
+| Money engine in whole paise, with unit tests (`src/lib/finance`) | Done · 77 tests |
+| Database: tables, constraints, indexes (`supabase/migrations`) | Done |
+| Access rules: owner / collector / staff, enforced by the database | Done |
+| Atomic saves: payment, new loan, moved date, loan edit, security release | Done |
+| Duplicate protection (double tap, retry) and two-people-at-once protection | Done |
+| Reversing a wrong payment (owner), history never edited or deleted | Done |
+| Activity log written by the database for every change | Done |
+| Sign-in with Supabase Auth; roles from the user's profile | Done |
+| All screens reading and saving through the database | Done |
+| Reports and PDF on real data; older history read on demand | Done |
+| Private file storage with access rules (bucket + policies, tested) | Done |
+| Photo upload buttons on the customer / security forms | **Not wired yet** (still placeholders) |
+| Database tests against a local Supabase | Done · 46 tests |
+| Browser tests of the critical flows (mobile, tablet, desktop) | Done · 20 tests |
+| Encrypted nightly backup + restore script; restore tested locally | Done |
+| CI, browser tests, deploy, backup and migration workflows | Written · **not yet run on GitHub** |
+| Security headers (CSP etc.) for Cloudflare Pages | Done, tested on Cloudflare's local runtime |
+| Independent security review and money-engine review | Done; findings fixed or listed below |
+| Handover documents | README, DEPLOYMENT, ENVIRONMENT, BACKUP_RESTORE, docs/BUSINESS-RULES |
 
-### Reports (current design)
+## Needed to go live (only the project owner can do these)
 
-One screen: choose **Person** (All People or one person), **Period** and **Show**,
-then press **Show Report**. **Download PDF** saves exactly what is on screen.
+1. Create a Supabase project and a Cloudflare account (both free). Steps in `DEPLOYMENT.md`.
+2. Create the private backup repository and its token.
+3. Add the variables and secrets from `ENVIRONMENT.md` to GitHub.
+4. Get the client's answer to the open question below.
+5. Decide how the client's existing ~850 customers and their loans get in: typed in,
+   or imported from a file they already keep. An import script is not written yet.
 
-- Period: Today, This Week, This Month, Last Month, This Year, Next Week, Next Month,
-  or Choose Dates (any dates, past or future).
-- Show: All, Paid, Pending, Partial, Overdue, Upcoming, Closed.
-- Quick buttons: Today, This Month, Pending, Overdue.
-- All People → four headline figures and a register (table on desktop, cards on phones).
-- One person → a ledger-style statement ending in Principal Left.
-- **Future periods** show who has to pay and how much (status UPCOMING). These are
-  estimates worked out from today's principal and each loan's interest setting.
+## Open question that changes what customers are asked to pay
+
+**What does a customer owe after missing whole periods?** Today a new collection
+opens only when the previous one is paid, so a customer who missed July, August and
+September is shown one month's interest pending, not three. This is how the approved
+prototype behaves and it has not been changed. Details and the other open questions:
+`docs/BUSINESS-RULES.md`.
+
+## Known gaps and follow-ups
+
+- Photo / document upload is not connected to the buttons yet (storage is ready).
+- Device list in Settings shows only "this device"; "Logout all other devices" is real.
+- Lock-screen PIN is per device (kept in the browser) and starts as `1234`. It is a
+  convenience lock on top of the real sign-in, not the security boundary. Each user
+  should change it in Settings.
+- New logins are created in the Supabase dashboard, not in the app.
+- PDFs print "Rs." instead of ₹ (the built-in PDF font has no ₹ sign).
+- Backup does not include uploaded files, only database records.
+- Reports treat a backdated payment by its payment date while the collection it paid
+  stays in its own period; a period can show interest "paid" with ₹0 paid in it.
 
 ## History of changes
 
-1. **First build** — all screens above, demo data, deployed to GitHub Pages.
-2. **Interest-first rework** — demo loans became mostly interest-only; Receive Payment
-   reorganised around paying interest; payment and recorded dates added (backdating).
-   Reports got six tabs (Overview, Interest, Loan Position, Overdue, Settlements, Closed)
-   with configurable columns.
-3. **Reports simplified** — the six tabs and column settings were judged too complex for
-   the client and replaced by the single Person / Period / Show screen with PDF download.
-4. **Upcoming reports** — Next Week, Next Month and future custom dates added, so the
-   owner can see who has to pay in the coming weeks or months.
-5. **Loan schedule and end date** (agent feedback on a weekly instalment loan) — the
-   loan page's Payment Timeline now lists the coming collections. A loan with "principal
-   with each collection" shows every collection up to a "Loan Ends" line and an "Ends On"
-   row in the summary; an interest-only loan shows its next three interest dates and
-   "No end date". Upcoming reports stop at a loan's end. Each collection now records how
-   much of what was paid was interest, so a principal-only payment no longer hides
-   interest that is still due.
+1. **First build** — all screens, demo data, deployed to GitHub Pages.
+2. **Interest-first rework** — interest-only loans, Receive Payment reorganised,
+   payment and recorded dates (backdating).
+3. **Reports simplified** — one Person / Period / Show screen with PDF download.
+4. **Upcoming reports** — Next Week, Next Month and future custom dates.
+5. **Loan schedule and end date** — coming collections and "Loan Ends" on the loan page.
+6. **Production conversion** (`production` branch, 4 Oct 2026) — everything in the
+   table above. The only additions to the approved screens: a busy state on save
+   buttons, plain-language error messages, a "Could not open your data" screen, a
+   "Entered by mistake? Reverse" link on the latest payment (owner only), and in the
+   live app the demo-only items are hidden (pre-filled login, PIN hint, "view as"
+   role switcher, "Reset demo data", "demo" captions).
 
-## Open points
+## Tech
 
-- **Question for the client:** do short-term, higher-interest loans have an agreed return
-  date or period (for example "30 days")? If yes, add an optional "Loan period" to the
-  New Loan wizard so those loans show an end date too. Today only loans that repay
-  principal with each collection have an end date.
-- Real interest and settlement rules from the client (replace `demo-calculations.ts`).
-- PDFs print money as "Rs." because the built-in PDF fonts have no ₹ sign. Embedding a
-  font would fix this at the cost of a larger download.
-- On phones a payment date is moved from the loan page, not from the collections list.
-- Demo data is rebuilt every day relative to today's date, so anything entered during
-  a demo is gone the next day (More → Settings → Reset demo data does the same on demand).
-- No backend, accounts or real permissions yet. The actions in `src/lib/store.ts` are
-  written as the future API surface.
+Next.js 16 (App Router, static export), TypeScript, Tailwind CSS v4, Supabase
+(Postgres, Auth, Storage), Cloudflare Pages, jsPDF, Vitest, Playwright.
+`AGENTS.md` warns that this Next.js version differs from older ones — read
+`node_modules/next/dist/docs/` before changing framework-level code.
 
-## Tech and layout
-
-Next.js 16 (App Router, static export), TypeScript, Tailwind CSS v4, lucide-react,
-date-fns, jsPDF. `AGENTS.md` warns that this Next.js version differs from older ones —
-read `node_modules/next/dist/docs/` before changing framework-level code.
-
-| Path | Purpose |
-|---|---|
-| `src/lib/demo-calculations.ts` | All money rules (interest, payment split, settlement, schedule, future projection). The single place to replace with the client's real rules. |
-| `src/lib/demo-data.ts` | Fictional customers, loans and payment history, dated relative to today. |
-| `src/lib/store.ts` | Browser data store and actions (`receivePayment`, `reschedule`, `createLoan`, …). |
-| `src/lib/selectors.ts` | Derived views: collection register, summaries, search, role permissions. |
-| `src/lib/reports.ts` | Report logic: periods, the All People register, the one-person ledger, titles. |
-| `src/lib/report-pdf.ts` | Lays the on-screen report out as an A4 PDF. |
-| `src/app/(app)/*` | One folder per screen. |
-| `src/components/*` | UI by area: `layout`, `collections`, `customers`, `loans`, `payments`, `reports`, `security`, `ui`. |
-
-## Run and deploy
-
-```bash
-npm install
-npm run dev      # http://localhost:3000
-npm run lint
-npm run build    # static site in ./out
-```
-
-Deploy (GitHub Pages serves the `gh-pages` branch): build with
-`NEXT_PUBLIC_BASE_PATH=/finance-proto`, add an empty `.nojekyll` file to `out/`, and
-force-push the contents of `out/` as the `gh-pages` branch. On Windows Git Bash, prefix
-the build with `MSYS_NO_PATHCONV=1` or the base path is rewritten into a Windows path.
+See `README.md` for the layout of the code and the commands.

@@ -123,6 +123,8 @@ export interface Payment {
   date: ISODate;
   /** Recorded date: when it was entered in the app. Differs for backdated entries. */
   recordedOn: ISODate;
+  /** LIVE: the exact time it was entered. The latest one on a loan is the one that can be reversed. */
+  recordedAt?: string;
   /** Principal left on the loan just before this payment. */
   principalBefore: number;
   interest: number;

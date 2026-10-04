@@ -13,7 +13,22 @@ const PREVIEW = 4;
  * Vertical history: money given → each payment (with split) → where principal stands now
  * → what is still to come (and, for instalment loans, when the loan ends).
  */
-export function LoanTimeline({ loan, payments, schedule, today }: { loan: Loan; payments: Payment[]; schedule?: LoanSchedule | null; today: string }) {
+export function LoanTimeline({
+  loan,
+  payments,
+  schedule,
+  today,
+  reversibleId,
+  onReverse,
+}: {
+  loan: Loan;
+  payments: Payment[];
+  schedule?: LoanSchedule | null;
+  today: string;
+  /** The one payment that may be reversed (the latest entered), when the viewer is allowed to. */
+  reversibleId?: string;
+  onReverse?: (p: Payment) => void;
+}) {
   const [showAll, setShowAll] = useState(false);
   const rows = schedule?.rows ?? [];
   const shown = showAll ? rows : rows.slice(0, PREVIEW);
@@ -62,6 +77,11 @@ export function LoanTimeline({ loan, payments, schedule, today }: { loan: Loan; 
             )}
             {p.recordedOn > p.date && (
               <p className="mt-1 inline-flex rounded-md bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">Backdated · recorded {dShort(p.recordedOn)}</p>
+            )}
+            {onReverse && p.id === reversibleId && (
+              <button type="button" onClick={() => onReverse(p)} className="mt-1 block text-[12px] font-semibold text-rose-700 underline underline-offset-2">
+                Entered by mistake? Reverse
+              </button>
             )}
           </Item>
         );

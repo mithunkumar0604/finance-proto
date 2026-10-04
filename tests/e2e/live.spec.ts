@@ -230,6 +230,47 @@ test("someone else changed the loan: the stale screen is refused, not saved over
   expect(await paymentsOf("LP-1131")).toHaveLength(0);
 });
 
+test("a payment entered by mistake can be reversed by the owner, and stays on record", async ({ page }) => {
+  await signInOwner(page);
+  await openLoan(page, "LP-1163");
+  const before = await loanRow("LP-1163");
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Pay Principal/ }).click();
+  await page.locator("#pay-principal").fill("5000");
+  await confirmAndFinish(page);
+  expect((await loanRow("LP-1163")).principal_left).toBe(before.principal_left - 500000);
+
+  await page.screenshot({ path: "test-results/reverse-link.png", fullPage: true });
+  await page.getByRole("button", { name: /Entered by mistake/ }).click();
+  await page.screenshot({ path: "test-results/reverse-sheet.png" });
+  await expect(page.getByRole("button", { name: "Reverse Payment" })).toBeDisabled();
+  await page.getByPlaceholder(/wrong loan/).fill("Typed on the wrong loan");
+  await page.getByRole("button", { name: "Reverse Payment" }).click();
+  await expect(page.getByText("Payment reversed")).toBeVisible();
+
+  const after = await loanRow("LP-1163");
+  expect(after.principal_left).toBe(before.principal_left);
+  const [pay] = await paymentsOf("LP-1163");
+  expect(pay.reversed_at).not.toBeNull();
+  expect(pay.reverse_reason).toBe("Typed on the wrong loan");
+  // the reversed payment no longer shows as money received
+  await page.reload();
+  await expect(page.getByRole("button", { name: /Entered by mistake/ })).toHaveCount(0);
+});
+
+test("typing more principal than is owed is refused, not trimmed", async ({ page }) => {
+  await signInOwner(page);
+  await openLoan(page, "LP-1175");
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Pay Principal/ }).click();
+  await page.locator("#pay-principal").fill("50000");
+  await page.getByRole("dialog").getByRole("button", { name: /Confirm Payment/ }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "more than the principal left" })).toBeVisible();
+  expect(await paymentsOf("LP-1175")).toHaveLength(0);
+});
+
 test("new customer and new loan are saved to the database", async ({ page }) => {
   await signInOwner(page);
   await page.goto("/customers/new/");
