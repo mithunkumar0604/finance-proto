@@ -61,7 +61,7 @@ export function collateralToRow(s: Security): { kind: Security["kind"]; details:
   return { kind, details, search_text: securitySearchText(s) };
 }
 
-export function loanFromRow(r: Row, collateral: Row | undefined): Loan {
+export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPaidOn?: string): Loan {
   return {
     id: r.id,
     customerId: r.customer_id,
@@ -76,6 +76,7 @@ export function loanFromRow(r: Row, collateral: Row | undefined): Loan {
     status: r.status,
     closedDate: opt(r.closed_date),
     security: securityFromRow(collateral),
+    ...(lastInterestPaidOn ? { lastInterestPaidOn } : {}),
     version: r.version,
   };
 }
@@ -176,7 +177,7 @@ const sentence = (s: string) => {
 export function parseDbError(e: unknown): { code: string; message: string } {
   const err = (e ?? {}) as { message?: string; code?: string; status?: number; name?: string };
   const msg = String(err.message ?? e ?? "");
-  const known = /^([A-Z_]{3,}): ([sS]+)$/.exec(msg);
+  const known = /^([A-Z_]{3,}): ([\s\S]+)$/.exec(msg);
   if (known) return { code: known[1], message: sentence(known[2]) };
   if (/failed to fetch|fetch failed|networkerror|network request failed|load failed|timeout/i.test(msg))
     return { code: "NETWORK", message: "No connection. Nothing was saved. Check the internet and try again." };

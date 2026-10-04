@@ -15,7 +15,8 @@ import { todayISO } from "@/lib/format";
 import { pdfMoney, type ReportDoc } from "@/lib/report-pdf";
 import { modeOf, personReport, RANGE_OPTIONS, rangeFor, registerReport, reportTitle, SHOW_OPTIONS, type RangeKey, type Show } from "@/lib/reports";
 import { permissions } from "@/lib/selectors";
-import { useAppState } from "@/lib/store";
+import { LIVE, useAppState } from "@/lib/store";
+import { useHistoryFrom, useLoanHistory } from "@/lib/use-history";
 
 export default function ReportsPage() {
   return (
@@ -55,17 +56,22 @@ function Reports() {
     setTimeout(() => document.getElementById("report-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
   };
 
+  const range = rangeFor(choice.range, today, { from: choice.from, to: choice.to });
+  // LIVE: read older history first when the report reaches back further than what is loaded.
+  const personLoans = choice.person && perm.seeReports ? s.loans.filter((l) => l.customerId === choice.person).map((l) => l.id) : [];
+  useLoanHistory(personLoans);
+  const reading = useHistoryFrom(perm.seeReports ? range.from : undefined) || (LIVE && personLoans.some((id) => !s.fullLoans[id]));
+
   if (!perm.seeReports)
     return (
       <>
         <PageHeader title="Reports" />
         <Card>
-          <EmptyState icon={Lock} title="Owner only" text="Reports are visible to the owner. Switch back to Owner to view them." />
+          <EmptyState icon={Lock} title="Owner only" text={LIVE ? "Reports are visible to the owner." : "Reports are visible to the owner. Switch back to Owner to view them."} />
         </Card>
       </>
     );
 
-  const range = rangeFor(choice.range, today, { from: choice.from, to: choice.to });
   const people = s.customers.filter(perm.customerScope);
   const person = choice.person ? personReport(s, today, range, choice.show, choice.person) : null;
   const register = person ? null : registerReport(s, today, range, choice.show);
@@ -89,7 +95,7 @@ function Reports() {
       await downloadReportPdf(doc);
       toast(`${title} — PDF downloaded`);
     } catch {
-      toast(`${title} prepared`);
+      toast("The PDF could not be made. Please try again.", "error");
     } finally {
       setBusy(false);
     }
@@ -110,12 +116,14 @@ function Reports() {
               {register && ` · ${register.lines.length} ${register.lines.length === 1 ? "loan" : "loans"}`}
             </p>
           </div>
-          <Button variant="secondary" onClick={download} disabled={busy} className="shrink-0 tracking-wide uppercase">
+          <Button variant="secondary" onClick={download} disabled={busy || reading} className="shrink-0 tracking-wide uppercase">
             <Download className="size-4.5" /> {busy ? "Preparing…" : "Download PDF"}
           </Button>
         </div>
 
-        {person ? (
+        {reading ? (
+          <Skeleton className="h-96" />
+        ) : person ? (
           <PersonView data={person} onAllPeople={() => apply({ ...choice, person: null })} />
         ) : (
           <>

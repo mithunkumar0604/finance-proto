@@ -8,7 +8,7 @@ import { Avatar, Card, Chip, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { phoneFmt } from "@/lib/format";
-import { actions, useAppState } from "@/lib/store";
+import { actions, LIVE, useAppState } from "@/lib/store";
 import type { Role } from "@/lib/types";
 
 const ROLE_INFO: Record<Role["id"], { name: string; text: string; tone: "brand" | "indigo" | "slate" }> = {
@@ -44,7 +44,7 @@ export default function UsersPage() {
         title="Users & Roles"
         subtitle="Who can see what"
         actions={
-          <Button size="sm" variant="soft" onClick={() => toast("Invite sent (demo)")}>
+          <Button size="sm" variant="soft" onClick={() => toast(LIVE ? "New logins are added by your administrator" : "Invite sent (demo)")}>
             <UserPlus className="size-4" /> Add
           </Button>
         }
@@ -66,8 +66,8 @@ export default function UsersPage() {
         ))}
       </Card>
 
-      <SectionHeader title="Try it — view the app as" />
-      <div className="mb-6 grid gap-3 sm:grid-cols-3">
+      {!LIVE && <SectionHeader title="Try it — view the app as" />}
+      <div className={LIVE ? "hidden" : "mb-6 grid gap-3 sm:grid-cols-3"}>
         {(Object.keys(ROLE_INFO) as Role["id"][]).map((r) => (
           <button
             key={r}
@@ -106,7 +106,7 @@ export default function UsersPage() {
           </div>
         ))}
       </Card>
-      <p className="mt-3 px-1 text-xs text-muted">Concept only — detailed permissions will be finalised with you.</p>
+      {!LIVE && <p className="mt-3 px-1 text-xs text-muted">Concept only — detailed permissions will be finalised with you.</p>}
     </div>
   );
 }

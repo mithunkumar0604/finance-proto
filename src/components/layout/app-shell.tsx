@@ -7,7 +7,9 @@ import { ReceivePaymentSheet } from "@/components/payments/receive-payment-sheet
 import { RescheduleSheet } from "@/components/loans/reschedule-sheet";
 import { Skeleton } from "@/components/ui/bits";
 import { Toaster } from "@/components/ui/toast";
-import { actions, useMaybeAppState } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { currentUser } from "@/lib/selectors";
+import { actions, LIVE, useMaybeAppState } from "@/lib/store";
 import { LockScreen } from "./lock-screen";
 import { BottomNav, Sidebar } from "./nav";
 import { QuickActions } from "./quick-actions";
@@ -28,9 +30,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [overlay, setOverlay] = useState<Overlay>(null);
 
   const loggedIn = s?.session.loggedIn;
+  const ready = s?.boot === "ready";
   useEffect(() => {
-    if (s && !loggedIn) router.replace("/");
-  }, [s, loggedIn, router]);
+    if (ready && !loggedIn) router.replace("/");
+  }, [ready, loggedIn, router]);
 
   useAutoLock(s?.settings.autoLockMinutes ?? 0, !!loggedIn && !s?.session.locked);
 
@@ -45,16 +48,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     [],
   );
 
-  if (!s || !loggedIn) return <ShellSkeleton />;
+  if (s?.boot === "error") return <StartError message={s.bootError} />;
+  if (!s || !ready || !loggedIn) return <ShellSkeleton />;
 
   const role = s.session.viewAs;
-  const viewer = s.users.find((u) => u.role === role);
+  const viewer = currentUser(s);
 
   return (
     <UIContext.Provider value={ui}>
       <Sidebar />
       <div className="min-h-dvh pb-28 md:pb-10 md:pl-64">
-        {role !== "owner" && (
+        {!LIVE && role !== "owner" && (
           <div className="relative z-30 flex items-center justify-center gap-2 bg-indigo-700 px-4 py-2 pt-[max(8px,env(safe-area-inset-top))] text-center text-sm font-semibold text-white">
             <Eye className="size-4" />
             Viewing as {viewer?.name} ({role === "collector" ? "Collector" : "Staff"})
@@ -106,6 +110,19 @@ function useAutoLock(minutes: number, enabled: boolean) {
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [minutes, enabled]);
+}
+
+/** The app could not read its data (no internet, server down). Nothing is shown rather than something stale. */
+function StartError({ message }: { message?: string }) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center" role="alert">
+      <h1 className="text-xl font-bold tracking-tight">Could not open your data</h1>
+      <p className="max-w-sm text-muted">{message ?? "Check the internet connection and try again."}</p>
+      <Button size="lg" onClick={() => actions.reload()}>
+        Try Again
+      </Button>
+    </div>
+  );
 }
 
 function ShellSkeleton() {

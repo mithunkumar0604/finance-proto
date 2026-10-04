@@ -88,7 +88,13 @@ export async function currentUser(): Promise<SignedIn | null> {
 }
 
 export async function signOut() {
-  await supabase().auth.signOut();
+  await supabase().auth.signOut({ scope: "local" });
+}
+
+/** Ends this person's sign-in on every other device. */
+export async function signOutOthers() {
+  const { error } = await supabase().auth.signOut({ scope: "others" });
+  if (error) throw toAppError(error);
 }
 
 /** Calls back when the sign-in ends (signed out elsewhere, or it expired and could not be renewed). */
@@ -118,9 +124,10 @@ async function recentActivity(): Promise<Activity[]> {
   return (data ?? []).map(activityFromRow);
 }
 
-const loansFrom = (rows: any[], collateral: any[]) => {
+const loansFrom = (rows: any[], collateral: any[], lastPaid: any[]) => {
   const byLoan = new Map(collateral.map((c) => [c.loan_id, c]));
-  return rows.map((r) => loanFromRow(r, byLoan.get(r.id)));
+  const paidOn = new Map(lastPaid.map((p) => [p.loan_id, p.last_interest_paid_on]));
+  return rows.map((r) => loanFromRow(r, byLoan.get(r.id), paidOn.get(r.id)));
 };
 
 /**
@@ -130,10 +137,11 @@ const loansFrom = (rows: any[], collateral: any[]) => {
  */
 export async function loadBook(from: ISODate, withActivity: boolean): Promise<Book> {
   const db = supabase();
-  const [customers, loans, collateral, dues, payments, users, activity] = await Promise.all([
+  const [customers, loans, collateral, lastPaid, dues, payments, users, activity] = await Promise.all([
     all(() => db.from("customers").select("*").order("id")),
     all(() => db.from("loans").select("*").order("id")),
     all(() => db.from("collateral").select("*").order("loan_id")),
+    all(() => db.from("loan_last_paid").select("*").order("loan_id")),
     all(() => db.from("dues").select(DUE_COLS).or(`due_date.gte.${from},and(cancelled.is.false,remaining.gt.0)`).order("id")),
     all(() => db.from("payments").select(PAYMENT_COLS).is("reversed_at", null).gte("payment_date", from).order("id")),
     all(() => db.from("profiles").select("*").order("created_at")),
@@ -141,7 +149,7 @@ export async function loadBook(from: ISODate, withActivity: boolean): Promise<Bo
   ]);
   return {
     customers: customers.map(customerFromRow),
-    loans: loansFrom(loans, collateral),
+    loans: loansFrom(loans, collateral, lastPaid),
     dues: dues.map(dueFromRow),
     payments: payments.map(paymentFromRow),
     activity,
@@ -163,13 +171,14 @@ export async function loadHistory(from: ISODate, before: ISODate): Promise<Pick<
 export async function loadLoans(loanIds: string[]): Promise<Pick<Book, "loans" | "dues" | "payments">> {
   if (!loanIds.length) return { loans: [], dues: [], payments: [] };
   const db = supabase();
-  const [loans, collateral, dues, payments] = await Promise.all([
+  const [loans, collateral, lastPaid, dues, payments] = await Promise.all([
     all(() => db.from("loans").select("*").in("id", loanIds).order("id")),
     all(() => db.from("collateral").select("*").in("loan_id", loanIds).order("loan_id")),
+    all(() => db.from("loan_last_paid").select("*").in("loan_id", loanIds).order("loan_id")),
     all(() => db.from("dues").select(DUE_COLS).in("loan_id", loanIds).order("id")),
     all(() => db.from("payments").select(PAYMENT_COLS).is("reversed_at", null).in("loan_id", loanIds).order("id")),
   ]);
-  return { loans: loansFrom(loans, collateral), dues: dues.map(dueFromRow), payments: payments.map(paymentFromRow) };
+  return { loans: loansFrom(loans, collateral, lastPaid), dues: dues.map(dueFromRow), payments: payments.map(paymentFromRow) };
 }
 
 export const loadActivity = recentActivity;

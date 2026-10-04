@@ -11,9 +11,8 @@ import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/bits";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
-import { APP } from "@/lib/config";
 import { dHeading, money, moneyShort, todayISO } from "@/lib/format";
-import { moneyOutside, overdueRows, permissions, todayRows, todaySummary, toCollectRows, tomorrowRows, upcomingRows } from "@/lib/selectors";
+import { badge, moneyOutside, overdueRows, permissions, todayRows, todaySummary, toCollectRows, tomorrowRows, upcomingRows } from "@/lib/selectors";
 import { useAppState } from "@/lib/store";
 
 function greeting() {
@@ -61,7 +60,7 @@ export default function HomePage() {
           {overdue.length > 0 && <span className="absolute top-2.5 right-2.5 size-2.5 rounded-full bg-rose-500 ring-2 ring-surface" />}
         </button>
         <Link href="/more/" aria-label="Profile" className="grid size-11 place-items-center rounded-full bg-brand-700 text-sm font-bold text-white md:hidden">
-          {APP.owner.initials}
+          {badge(s).initials}
         </Link>
       </header>
 

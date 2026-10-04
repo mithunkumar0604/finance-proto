@@ -7,14 +7,14 @@ import type { ReactNode } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/bits";
 import { APP } from "@/lib/config";
-import { permissions } from "@/lib/selectors";
-import { actions, useAppState } from "@/lib/store";
+import { currentUser, permissions } from "@/lib/selectors";
+import { actions, LIVE, useAppState } from "@/lib/store";
 
 export default function MorePage() {
   const s = useAppState();
   const router = useRouter();
   const perm = permissions(s);
-  const viewer = s.users.find((u) => u.role === s.session.viewAs);
+  const viewer = currentUser(s);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -46,8 +46,7 @@ export default function MorePage() {
         <Item onClick={actions.lock} icon={<Lock />} label="Lock Application" tone="bg-slate-100 text-slate-700" />
         <Item
           onClick={() => {
-            actions.logout();
-            router.replace("/");
+            void actions.logout().then(() => router.replace("/"));
           }}
           icon={<LogOut />}
           label="Logout"
@@ -57,7 +56,7 @@ export default function MorePage() {
       </Group>
 
       <p className="mt-6 text-center text-xs text-faint">
-        {APP.name} · Prototype v0.1 · Demo data
+        {LIVE ? APP.name : `${APP.name} · Prototype v0.1 · Demo data`}
       </p>
     </div>
   );

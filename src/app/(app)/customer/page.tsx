@@ -14,6 +14,8 @@ import { paymentTotal } from "@/lib/finance/engine";
 import { dLong, dShort, METHOD_LABEL, money, phoneFmt, todayISO } from "@/lib/format";
 import { customerView, permissions } from "@/lib/selectors";
 import { actions, useAppState } from "@/lib/store";
+import { useLoanHistory } from "@/lib/use-history";
+import { useSave } from "@/lib/use-save";
 
 export default function CustomerPage() {
   return (
@@ -32,6 +34,7 @@ function CustomerProfile() {
   const today = todayISO();
   const perm = permissions(s);
   const [tab, setTab] = useState<Tab>("loans");
+  useLoanHistory(s.loans.filter((l) => l.customerId === id).map((l) => l.id));
   const c = s.customers.find((x) => x.id === id);
 
   if (!c)
@@ -223,6 +226,7 @@ function SummaryTile({ label, value, tone, strong }: { label: string; value: num
 
 function Notes({ customerId, initial }: { customerId: string; initial: string }) {
   const [text, setText] = useState(initial);
+  const { busy, run } = useSave();
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center gap-2 font-bold">
@@ -232,10 +236,9 @@ function Notes({ customerId, initial }: { customerId: string; initial: string })
       <div className="mt-3 flex justify-end">
         <Button
           size="sm"
-          disabled={text === initial}
-          onClick={() => {
-            actions.updateCustomer(customerId, { notes: text });
-            toast("Note saved");
+          disabled={busy || text === initial}
+          onClick={async () => {
+            if (await run(() => actions.updateCustomer(customerId, { notes: text }).then(() => true))) toast("Note saved");
           }}
         >
           Save Note

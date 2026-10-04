@@ -2,9 +2,10 @@
 // filtering raw arrays themselves.
 
 import { dueRemaining, dueStatus, dueTotal, openDue, paymentTotal } from "./finance/engine";
-import { daysBetween, shiftISO } from "./format";
-import type { AppState } from "./store";
-import type { Customer, Due, DueStatus, ISODate, Loan, LoanType, Role } from "./types";
+import { APP } from "./config";
+import { daysBetween, initials, shiftISO } from "./format";
+import { LIVE, type AppState } from "./store";
+import type { AppUser, Customer, Due, DueStatus, ISODate, Loan, LoanType, Role } from "./types";
 
 export interface RegisterRow {
   due: Due;
@@ -31,15 +32,29 @@ export interface Permissions {
   customerScope: (c: Customer) => boolean;
 }
 
+/** DEMO: the collector the "view as Collector" switch stands for. */
 export const COLLECTOR_ID = "U2";
+
+/** The person using the app: the signed-in user, or in the demo the stand-in for the chosen role. */
+export function currentUser(s: AppState): AppUser | undefined {
+  return LIVE ? s.users.find((u) => u.id === s.session.userId) : s.users.find((u) => u.role === s.session.viewAs);
+}
 
 export function permissions(s: AppState): Permissions {
   const role = s.session.viewAs;
+  // LIVE: the database already returns only this collector's customers; this keeps the screens in step.
+  const collectorId = LIVE ? s.session.userId : COLLECTOR_ID;
   if (role === "collector")
-    return { role, seeTotals: false, seeReports: false, receive: true, createLoan: false, addCustomer: false, customerScope: (c) => c.collectorId === COLLECTOR_ID };
+    return { role, seeTotals: false, seeReports: false, receive: true, createLoan: false, addCustomer: false, customerScope: (c) => c.collectorId === collectorId };
   if (role === "staff")
     return { role, seeTotals: false, seeReports: false, receive: false, createLoan: false, addCustomer: true, customerScope: () => true };
   return { role, seeTotals: true, seeReports: true, receive: true, createLoan: true, addCustomer: true, customerScope: () => true };
+}
+
+/** Name and initials for the profile badge. The demo always shows the owner, as designed. */
+export function badge(s: AppState): { name: string; initials: string } {
+  const u = LIVE ? currentUser(s) : undefined;
+  return u ? { name: u.name, initials: initials(u.name) } : { name: APP.owner.name, initials: APP.owner.initials };
 }
 
 // ---------------------------------------------------------------------------

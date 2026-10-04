@@ -274,6 +274,10 @@ export const actions = {
     if (LIVE) await remote.signOut().catch(() => {});
     set((s) => ({ ...s, ...(LIVE ? { ...EMPTY_DB, fullLoans: {} } : {}), session: { ...DEFAULT_SESSION } }));
   },
+  /** LIVE: end this person's sign-in on every other device. */
+  async logoutOthers(): Promise<void> {
+    if (LIVE) await remote.signOutOthers();
+  },
   /** LIVE: read everything again ("Try again" after a failed start). */
   async reload(): Promise<void> {
     if (LIVE) await boot();
@@ -500,7 +504,11 @@ async function receive(input: PaymentInput, key: string): Promise<PaymentResult>
     return { ...result, loan: now.loans.find((l) => l.id === loan.id) ?? result.loan, dues: now.dues.filter((d) => d.loanId === loan.id) };
   }
 
-  const savedLoan: Loan = { ...result.loan, version: saved.version };
+  const savedLoan: Loan = {
+    ...result.loan,
+    version: saved.version,
+    ...(input.interest > 0 && input.date > (loan.lastInterestPaidOn ?? "") ? { lastInterestPaidOn: input.date } : {}),
+  };
   const payment = { ...result.payment, recordedOn: saved.recordedOn };
   set((st) => ({
     ...st,

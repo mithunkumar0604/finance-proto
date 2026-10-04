@@ -18,7 +18,9 @@ import { toast } from "@/components/ui/toast";
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { loanView, permissions } from "@/lib/selectors";
-import { actions, useAppState } from "@/lib/store";
+import { actions, LIVE, useAppState } from "@/lib/store";
+import { useLoanHistory } from "@/lib/use-history";
+import { useSave } from "@/lib/use-save";
 import type { InterestSetting, Loan } from "@/lib/types";
 
 export default function LoanPage() {
@@ -36,6 +38,8 @@ function LoanDetails() {
   const today = todayISO();
   const perm = permissions(s);
   const [editing, setEditing] = useState(false);
+  const { busy, run } = useSave();
+  useLoanHistory(id ? [id] : []);
   const loan = s.loans.find((l) => l.id === id);
 
   if (!loan)
@@ -152,9 +156,11 @@ function LoanDetails() {
               <Row label="Total Collected" value={money(v.collected)} />
               <Row label="Interest Collected" value={money(v.interestCollected)} />
             </div>
-            <p className="flex items-center gap-1.5 py-3 text-xs text-faint">
-              <Info className="size-3.5" /> Demonstration values. Final interest rules will be configured with you.
-            </p>
+            {!LIVE && (
+              <p className="flex items-center gap-1.5 py-3 text-xs text-faint">
+                <Info className="size-3.5" /> Demonstration values. Final interest rules will be configured with you.
+              </p>
+            )}
           </Card>
 
           {loan.security && (
@@ -164,9 +170,9 @@ function LoanDetails() {
                 <Button
                   variant="secondary"
                   className="mt-4 w-full"
-                  onClick={() => {
-                    actions.releaseSecurity(loan.id);
-                    toast("Security marked as released");
+                  disabled={busy}
+                  onClick={async () => {
+                    if (await run(() => actions.releaseSecurity(loan.id).then(() => true))) toast("Security marked as released");
                   }}
                 >
                   <Unlock className="size-4" /> Mark as Released
@@ -193,6 +199,7 @@ function LoanDetails() {
 function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
   const [interest, setInterest] = useState<InterestSetting>(loan.interest);
   const [reference, setReference] = useState(loan.reference ?? "");
+  const { busy, run } = useSave();
   return (
     <Sheet
       open
@@ -203,8 +210,9 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
         <Button
           size="lg"
           className="w-full"
-          onClick={() => {
-            actions.updateLoan(loan.id, { interest, reference: reference || undefined });
+          disabled={busy}
+          onClick={async () => {
+            if (!(await run(() => actions.updateLoan(loan.id, { interest, reference: reference || undefined }).then(() => true)))) return;
             toast("Loan updated");
             onClose();
           }}

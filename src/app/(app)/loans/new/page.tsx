@@ -31,7 +31,8 @@ import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components
 import { loanDefaults, previewFirstCollection } from "@/lib/finance/engine";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
-import { actions, useAppState } from "@/lib/store";
+import { actions, LIVE, newKey, useAppState } from "@/lib/store";
+import { useSave } from "@/lib/use-save";
 import type { Frequency, InterestSetting, Loan, LoanType } from "@/lib/types";
 
 export default function NewLoanPage() {
@@ -74,6 +75,9 @@ function Wizard() {
   const [secKind, setSecKind] = useState<SecurityKind>("none");
   const [sec, setSec] = useState<SecurityDraft>(EMPTY_SECURITY);
   const [created, setCreated] = useState<Loan | null>(null);
+  // One key for this wizard: pressing Create twice, or again after a lost connection, makes one loan.
+  const [saveKey] = useState(newKey);
+  const { busy, run } = useSave();
 
   const customer = s.customers.find((c) => c.id === customerId);
 
@@ -108,9 +112,9 @@ function Wizard() {
   };
   const preview = previewFirstCollection({ ...draft, principalLeft: draft.amount });
 
-  const create = () => {
-    const loan = actions.createLoan(draft);
-    setCreated(loan);
+  const create = async () => {
+    const loan = await run(() => actions.createLoan(draft, saveKey));
+    if (loan) setCreated(loan);
   };
 
   if (created)
@@ -338,8 +342,8 @@ function Wizard() {
             </Button>
           )
         ) : (
-          <Button size="lg" className="flex-1 tracking-wide uppercase" onClick={create}>
-            Create Loan
+          <Button size="lg" className="flex-1 tracking-wide uppercase" onClick={create} disabled={busy}>
+            {busy ? "Saving…" : "Create Loan"}
           </Button>
         )}
         {step === 0 && (
@@ -385,7 +389,7 @@ function DemoPreview({ date, interest, principal }: { date: string; interest: nu
         </span>
       </div>
       <p className="mt-2 flex items-center gap-1.5 text-xs text-faint">
-        <Info className="size-3.5" /> Demo calculation — your exact rules will be added before go-live.
+        <Info className="size-3.5" /> {LIVE ? "Worked out from the interest you entered above." : "Demo calculation — your exact rules will be added before go-live."}
       </p>
     </div>
   );

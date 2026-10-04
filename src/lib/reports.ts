@@ -213,7 +213,8 @@ export function registerReport(s: AppState, today: ISODate, range: DateRange, sh
       upcoming,
       upcomingCount: coming.length,
       firstUpcoming: coming.length ? coming.reduce((a, d) => (d.dueDate < a ? d.dueDate : a), coming[0].dueDate) : undefined,
-      lastPaid: lastPay?.date,
+      // No payment in memory (it is older than what is loaded): use the date the database keeps.
+      lastPaid: lastPay?.date ?? (loan.lastInterestPaidOn && loan.lastInterestPaidOn <= range.to ? loan.lastInterestPaidOn : undefined),
       nextDue: loan.status === "active" ? openDue(duesByLoan.get(loan.id) ?? [])?.dueDate : undefined,
       status,
       daysLate: late.length ? Math.max(...late.map((d) => daysBetween(d.dueDate, today))) : 0,

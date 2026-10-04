@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/toast";
 import { dueRemaining } from "@/lib/finance/engine";
 import { dLong, dShort, money, shiftISO, todayISO } from "@/lib/format";
 import { actions, useAppState } from "@/lib/store";
+import { useSave } from "@/lib/use-save";
 
 const REASONS = ["Customer travelling", "Salary not received", "Medical emergency", "Festival week"];
 
@@ -22,6 +23,7 @@ export function RescheduleSheet({ dueId, onClose }: { dueId: string; onClose: ()
   const base = due.dueDate < today ? today : due.dueDate;
   const [date, setDate] = useState(shiftISO(base, 5));
   const [reason, setReason] = useState("");
+  const { busy, run } = useSave();
 
   const quick = [
     { label: "+1 day", v: shiftISO(base, 1) },
@@ -30,8 +32,9 @@ export function RescheduleSheet({ dueId, onClose }: { dueId: string; onClose: ()
     { label: "+15 days", v: shiftISO(base, 15) },
   ];
 
-  const save = () => {
-    actions.reschedule(dueId, date, reason.trim() || "No reason given");
+  const save = async () => {
+    const ok = await run(() => actions.reschedule(dueId, date, reason.trim() || "No reason given").then(() => true));
+    if (!ok) return;
     toast(`Rescheduled · ${dShort(date)}`);
     onClose();
   };
@@ -43,7 +46,7 @@ export function RescheduleSheet({ dueId, onClose }: { dueId: string; onClose: ()
       title="Move Payment Date"
       subtitle={`${customer.name} · ${loan.id} · ${money(dueRemaining(due))}`}
       footer={
-        <Button size="lg" className="w-full" onClick={save} disabled={!date || date === due.dueDate}>
+        <Button size="lg" className="w-full" onClick={save} disabled={busy || !date || date === due.dueDate}>
           Save
         </Button>
       }

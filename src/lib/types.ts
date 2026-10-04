@@ -90,6 +90,8 @@ export interface Loan {
   status: "active" | "closed";
   closedDate?: ISODate;
   security: Security | null;
+  /** LIVE: the day interest was last received, from the database (recent payments only are held in memory). */
+  lastInterestPaidOn?: ISODate;
   /** Database row version, sent back with every change so two people cannot overwrite each other. */
   version?: number;
 }

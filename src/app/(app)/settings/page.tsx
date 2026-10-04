@@ -9,7 +9,8 @@ import { Card, Chip, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
-import { actions, useAppState } from "@/lib/store";
+import { actions, LIVE, useAppState } from "@/lib/store";
+import { useSave } from "@/lib/use-save";
 
 const DEVICES = [
   { id: "d1", icon: Smartphone, name: "This phone", detail: "Chrome · Perundurai", current: true, when: "Active now" },
@@ -19,7 +20,9 @@ const DEVICES = [
 
 export default function SettingsPage() {
   const s = useAppState();
-  const [devices, setDevices] = useState(DEVICES);
+  // LIVE: only this device is listed; other sign-ins are ended on the server, not in a list.
+  const [devices, setDevices] = useState(LIVE ? DEVICES.filter((d) => d.current) : DEVICES);
+  const { busy, run } = useSave();
   const [pinStep, setPinStep] = useState<"closed" | "current" | "new">("closed");
 
   return (
@@ -94,8 +97,9 @@ export default function SettingsPage() {
       <Button
         variant="danger"
         className="mb-8 w-full"
-        disabled={devices.length === 1}
-        onClick={() => {
+        disabled={LIVE ? busy : devices.length === 1}
+        onClick={async () => {
+          if (LIVE && !(await run(() => actions.logoutOthers().then(() => true)))) return;
           setDevices(devices.filter((x) => x.current));
           toast("All other devices logged out");
         }}
@@ -103,8 +107,8 @@ export default function SettingsPage() {
         <LogOut className="size-4" /> Logout all other devices
       </Button>
 
-      <SectionHeader title="Prototype" />
-      <Card className="overflow-hidden">
+      {!LIVE && <SectionHeader title="Prototype" />}
+      <Card className={LIVE ? "hidden" : "overflow-hidden"}>
         <Action
           icon={RotateCcw}
           label="Reset demo data"
@@ -122,7 +126,7 @@ export default function SettingsPage() {
           <p className="mb-8 text-sm text-white/65">{pinStep === "current" ? "To confirm it's you" : "Choose 4 digits you'll remember"}</p>
           <PinPad
             key={pinStep}
-            error={pinStep === "current" ? "Demo PIN: " + s.settings.pin : undefined}
+            error={pinStep === "current" ? (LIVE ? "Wrong PIN. Try again" : "Demo PIN: " + s.settings.pin) : undefined}
             onComplete={(pin) => {
               if (pinStep === "current") {
                 if (pin !== s.settings.pin) return false;

@@ -7,13 +7,16 @@ import { Logo } from "@/components/layout/nav";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { APP } from "@/lib/config";
-import { actions, useMaybeAppState } from "@/lib/store";
+import { actions, LIVE, useMaybeAppState } from "@/lib/store";
+import { errorText } from "@/lib/use-save";
 
 export default function LoginPage() {
   const router = useRouter();
   const s = useMaybeAppState();
-  const [user, setUser] = useState("98000 12345");
-  const [pin, setPin] = useState("1234");
+  // The demo is pre-filled; the live app never is.
+  const [user, setUser] = useState(LIVE ? "" : "98000 12345");
+  const [pin, setPin] = useState(LIVE ? "" : "1234");
+  const [error, setError] = useState("");
   const [show, setShow] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -26,10 +29,21 @@ export default function LoginPage() {
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    setTimeout(() => {
-      actions.login();
-      router.replace("/home/");
-    }, 450);
+    setError("");
+    if (!LIVE) {
+      setTimeout(() => {
+        void actions.login();
+        router.replace("/home/");
+      }, 450);
+      return;
+    }
+    actions
+      .login(user, pin, remember)
+      .then(() => router.replace("/home/"))
+      .catch((err) => {
+        setError(errorText(err));
+        setBusy(false);
+      });
   };
 
   return (
@@ -87,12 +101,18 @@ export default function LoginPage() {
             </label>
           </div>
 
-          <Button type="submit" size="lg" className="mt-8 w-full" disabled={busy}>
+          {error && (
+            <p role="alert" className="mt-5 rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-semibold text-rose-700">
+              {error}
+            </p>
+          )}
+
+          <Button type="submit" size="lg" className="mt-8 w-full" disabled={busy || (LIVE && (!user.trim() || !pin))}>
             {busy ? <span className="size-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : "Sign In"}
           </Button>
 
           <p className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-muted">
-            <ShieldCheck className="size-4 text-brand-600" /> Demo login — details are pre-filled
+            <ShieldCheck className="size-4 text-brand-600" /> {LIVE ? "Private and secure sign in" : "Demo login — details are pre-filled"}
           </p>
         </form>
       </div>

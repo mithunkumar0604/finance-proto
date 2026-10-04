@@ -6,9 +6,10 @@ import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Chip, Row } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { APP } from "@/lib/config";
 import { dueInterestLeft, dueRemaining, paymentTotal, type PaymentResult } from "@/lib/finance/engine";
 import { dLong, dShort, money } from "@/lib/format";
-import { useAppState } from "@/lib/store";
+import { LIVE, useAppState } from "@/lib/store";
 
 export function PaymentSuccess({
   result,
@@ -31,6 +32,24 @@ export function PaymentSuccess({
   const liveLoan = s.loans.find((l) => l.id === loan.id) ?? loan;
   const principalMoved = payment.principal > 0;
   const backdated = payment.recordedOn > payment.date;
+
+  // LIVE: opens WhatsApp with the receipt text ready to send to the customer.
+  const sendReceipt = () => {
+    if (!LIVE) return toast("Receipt sent on WhatsApp (demo)");
+    const digits = (s.customers.find((c) => c.id === loan.customerId)?.phone ?? "").replace(/\D/g, "");
+    const text = [
+      APP.owner.business,
+      `Received ${money(paymentTotal(payment))} on ${dLong(payment.date)}`,
+      `Loan ${loan.id}`,
+      payment.interest > 0 ? `Interest: ${money(payment.interest)}` : "",
+      payment.principal > 0 ? `Principal: ${money(payment.principal)}` : "",
+      payment.other > 0 ? `Other: ${money(payment.other)}` : "",
+      result.closed ? "Loan closed. Thank you." : `Principal left: ${money(liveLoan.principalLeft)}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    window.open(`https://wa.me/${digits.length === 10 ? "91" + digits : digits}?text=${encodeURIComponent(text)}`, "_blank", "noopener");
+  };
 
   const title = result.closed ? "Loan Closed" : principalMoved && payment.interest === 0 ? "Principal Recorded" : "Payment Recorded";
 
@@ -97,7 +116,7 @@ export function PaymentSuccess({
       {principalMoved && !result.closed && interestStillDue === 0 && (
         <p className="mt-3 w-full rounded-xl bg-line-2 px-3 py-2 text-left text-sm text-ink-2">
           Next interest {nextDate ? `on ${dShort(nextDate)}` : ""}
-          {result.nextDue ? ` · ${money(result.nextDue.interestAmount)} (on the new balance — demo)` : ""}
+          {result.nextDue ? ` · ${money(result.nextDue.interestAmount)} (on the new balance${LIVE ? "" : " — demo"})` : ""}
         </p>
       )}
 
@@ -106,7 +125,7 @@ export function PaymentSuccess({
           Done
         </Button>
         <div className="grid grid-cols-2 gap-2.5">
-          <Button variant="secondary" onClick={() => toast("Receipt sent on WhatsApp (demo)")}>
+          <Button variant="secondary" onClick={sendReceipt}>
             <MessageCircle className="size-4" /> Send receipt
           </Button>
           <Button

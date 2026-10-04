@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { APP } from "@/lib/config";
 import { actions, useAppState } from "@/lib/store";
-import { permissions } from "@/lib/selectors";
+import { badge, permissions } from "@/lib/selectors";
 import { useUI } from "./ui-context";
 
 const strip = (p: string) => p.replace(/\/+$/, "") || "/";
@@ -117,9 +117,9 @@ export function Sidebar() {
           <Lock className="size-5" /> Lock App
         </button>
         <div className="mt-3 flex items-center gap-3 rounded-2xl bg-line-2 p-3">
-          <span className="grid size-10 place-items-center rounded-full bg-brand-700 text-sm font-bold text-white">{APP.owner.initials}</span>
+          <span className="grid size-10 place-items-center rounded-full bg-brand-700 text-sm font-bold text-white">{badge(s).initials}</span>
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-sm font-bold">{APP.owner.name}</p>
+            <p className="truncate text-sm font-bold">{badge(s).name}</p>
             <p className="truncate text-xs text-muted">{APP.owner.business}</p>
           </div>
         </div>

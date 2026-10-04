@@ -20,7 +20,8 @@ import {
 } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, LOAN_TYPE_LABEL, LOAN_TYPE_SHORT, money, shiftISO, todayISO } from "@/lib/format";
 import { customerView, permissions, search, toCollectRows } from "@/lib/selectors";
-import { actions, useAppState } from "@/lib/store";
+import { actions, LIVE, newKey, useAppState } from "@/lib/store";
+import { useSave } from "@/lib/use-save";
 import type { PaymentMethod } from "@/lib/types";
 import { PaymentSuccess } from "./payment-success";
 
@@ -182,6 +183,9 @@ function PaymentForm({
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [date, setDate] = useState(today);
   const [note, setNote] = useState("");
+  // One key per open sheet: a double tap, or Confirm again after a lost connection, saves once.
+  const [saveKey] = useState(newKey);
+  const { busy, run } = useSave();
 
   // DEMO: how the money is counted in each mode (rules live in lib/finance/engine).
   let split: Allocation;
@@ -213,8 +217,10 @@ function PaymentForm({
     if (m === "principal" || m === "both") setTimeout(() => document.getElementById("pay-principal")?.focus(), 30);
   };
 
-  const confirm = () => {
-    const result = actions.receivePayment({
+  const confirm = async () => {
+    const result = await run(() =>
+      actions.receivePayment(
+        {
       loanId: loan.id,
       dueId: due?.id,
       date,
@@ -223,8 +229,11 @@ function PaymentForm({
       other: split.other,
       method,
       note: note.trim() || (mode === "adjust" ? "Adjustment" : undefined),
-    });
-    onDone(result, { principal: loan.principalLeft, customer: customer.name });
+        },
+        saveKey,
+      ),
+    );
+    if (result) onDone(result, { principal: loan.principalLeft, customer: customer.name });
   };
 
   const modeButton = (m: Mode, label: string, sub: string) => (
@@ -253,8 +262,8 @@ function PaymentForm({
         </span>
       }
       footer={
-        <Button size="lg" className="w-full text-[16px] tracking-wide uppercase" disabled={!canReceive || total <= 0} onClick={confirm}>
-          {mode === "settle" ? "Confirm Settlement" : "Confirm Payment"}
+        <Button size="lg" className="w-full text-[16px] tracking-wide uppercase" disabled={busy || !canReceive || total <= 0} onClick={confirm}>
+          {busy ? "Saving…" : mode === "settle" ? "Confirm Settlement" : "Confirm Payment"}
           {total > 0 && <span className="num normal-case"> · {money(total)}</span>}
         </Button>
       }
@@ -420,7 +429,7 @@ function PaymentForm({
         )}
 
         <p className="mt-3 flex items-start gap-1.5 text-xs text-faint">
-          <Info className="mt-px size-3.5 shrink-0" /> Demo rules (interest is counted first). Final rules will be set with you.
+          <Info className="mt-px size-3.5 shrink-0" /> {LIVE ? "Interest is counted first, then principal." : "Demo rules (interest is counted first). Final rules will be set with you."}
         </p>
       </div>
 

@@ -8,12 +8,14 @@ import { Button, LinkButton } from "@/components/ui/button";
 import { Field, Input, PhotoPlaceholder, Textarea } from "@/components/ui/form";
 import { phoneFmt } from "@/lib/format";
 import { actions } from "@/lib/store";
+import { useSave } from "@/lib/use-save";
 import type { Customer } from "@/lib/types";
 
 export default function NewCustomerPage() {
   const [saved, setSaved] = useState<Customer | null>(null);
   const [f, setF] = useState({ name: "", phone: "", altPhone: "", area: "", address: "", idRef: "", notes: "" });
   const [touched, setTouched] = useState(false);
+  const { busy, run } = useSave();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
   const phoneDigits = f.phone.replace(/\D/g, "");
@@ -23,10 +25,11 @@ export default function NewCustomerPage() {
   };
   const valid = !errors.name && !errors.phone;
 
-  const save = () => {
+  const save = async () => {
     setTouched(true);
     if (!valid) return;
-    const c = actions.addCustomer({
+    const c = await run(() =>
+      actions.addCustomer({
       name: f.name.trim(),
       phone: phoneDigits,
       altPhone: f.altPhone.replace(/\D/g, "") || undefined,
@@ -34,8 +37,9 @@ export default function NewCustomerPage() {
       address: f.address.trim() || undefined,
       idRef: f.idRef.trim() || undefined,
       notes: f.notes.trim() || undefined,
-    });
-    setSaved(c);
+      }),
+    );
+    if (c) setSaved(c);
   };
 
   if (saved)
@@ -94,7 +98,7 @@ export default function NewCustomerPage() {
         </Field>
       </Card>
       <div className="sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-10 -mx-4 mt-5 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pt-6 pb-3 md:bottom-0 md:mx-0 md:px-0 md:pb-6">
-        <Button size="lg" className="w-full uppercase tracking-wide" onClick={save}>
+        <Button size="lg" className="w-full uppercase tracking-wide" onClick={save} disabled={busy}>
           Save &amp; Continue
         </Button>
       </div>

@@ -284,6 +284,10 @@ begin
     raise exception 'ALREADY_REVERSED: this payment is already reversed';
   end if;
 
+  if v_pay.before_state -> 'loan' is null then
+    raise exception 'NOT_REVERSIBLE: this payment was imported from older records and cannot be reversed here';
+  end if;
+
   select id into v_latest from public.payments
   where loan_id = v_pay.loan_id and reversed_at is null order by recorded_at desc, id desc limit 1;
   if v_latest <> p_payment_id then

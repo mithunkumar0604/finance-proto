@@ -4,7 +4,7 @@ import { clsx } from "clsx";
 import { Delete, Lock } from "lucide-react";
 import { useState } from "react";
 import { APP } from "@/lib/config";
-import { actions } from "@/lib/store";
+import { actions, LIVE } from "@/lib/store";
 
 /** PIN pad used by the lock screen. */
 export function PinPad({ onComplete, length = 4, error }: { onComplete: (pin: string) => boolean; length?: number; error?: string }) {
@@ -64,8 +64,8 @@ export function LockScreen() {
       </span>
       <h1 className="text-2xl font-bold tracking-tight">Application Locked</h1>
       <p className="mt-1.5 mb-10 text-white/70">Enter PIN to continue</p>
-      <PinPad onComplete={(p) => actions.unlock(p)} error={`Demo PIN: ${APP.demoPin}`} />
-      <button type="button" onClick={actions.logout} className="mt-10 text-sm font-semibold text-white/70 hover:text-white">
+      <PinPad onComplete={(p) => actions.unlock(p)} error={LIVE ? "Wrong PIN. Try again" : `Demo PIN: ${APP.demoPin}`} />
+      <button type="button" onClick={() => void actions.logout()} className="mt-10 text-sm font-semibold text-white/70 hover:text-white">
         Sign out instead
       </button>
     </div>
