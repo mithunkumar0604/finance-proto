@@ -81,13 +81,13 @@ Project `ledgerpro`, region Singapore (ap-southeast-1). Its URL and keys are in 
 
 Still to do on the hosted project:
 
-- **Turn off "Allow new users to sign up"** (Authentication → Sign In / Providers).
-  It is currently ON. A stranger who signs up gets no access to any data (they have
-  no profile), but it should be off.
+- ~~Turn off "Allow new users to sign up".~~ Done; checked off on 5 October 2026.
 - Create the owner login (`DEPLOYMENT.md` step 6).
-- The full database test suite has **not** been run against the hosted project: it
-  needs the secret key, writes test data, and the project must be wiped afterwards
-  (`DEPLOYMENT.md` 5a). Do it before any real data goes in.
+- ~~Run the full database test suite against the hosted project.~~ Done 5 October
+  2026: 86 of 86 passed against the real project (roles, payments, missed interest,
+  waivers, reversal, locked history, direct-write blocking, private files, import).
+  The project was then reset, all 7 migrations re-applied, and re-verified: 18 of 18
+  checks, every table empty, 0 logins, 0 stored files, sign-ups off.
 - A real backup and a compared restore (`BACKUP_RESTORE.md`).
 
 ## Needed to go live (only the project owner can do these)

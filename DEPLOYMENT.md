@@ -75,10 +75,21 @@ To look at the app with safe demo data, load the fictional demo book the same wa
 (`npm run seed:local` with the same four variables; it refuses a database that
 already has customers).
 
-Then wipe the test data and re-create the empty tables, so the project starts clean:
+Then wipe the test data and re-create the empty tables, so the project starts clean.
+First remove any files the tests stored (Storage → `documents` in the dashboard), then:
 
 ```bash
-npx supabase db reset --db-url "<SUPABASE_DB_URL>"
+npx supabase db reset --linked --no-seed
+```
+
+The reset clears the tables, functions, policies and logins, but leaves the two number
+sequences behind, so re-applying stops at the first migration with
+`relation "customer_no" already exists`. If that happens:
+
+```bash
+npx supabase db query --linked "drop sequence if exists public.customer_no, public.loan_no"
+npx supabase db push
+npx supabase db query --linked -f scripts/verify-hosted.sql    # must be 18 of 18 again
 ```
 
 **Never run these once real customers are in the project.** After that, use the
