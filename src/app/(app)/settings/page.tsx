@@ -113,7 +113,7 @@ export default function SettingsPage() {
         onClick={async () => {
           if (LIVE && !(await run(() => actions.logoutOthers().then(() => true)))) return;
           setDevices(devices.filter((x) => x.current));
-          toast("All other devices logged out");
+          toast(LIVE ? "Other devices logged out. You are still signed in here." : "All other devices logged out");
         }}
       >
         <LogOut className="size-4" /> Logout all other devices
