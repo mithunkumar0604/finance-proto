@@ -8,16 +8,24 @@ Last updated: 5 October 2026.
 The client approved the clickable prototype. It is preserved as tag
 `prototype-approved-v1` (source) and `prototype-approved-v1-site` (the deployed demo).
 
-The `production` branch turns that prototype into a real application, with the
-screens unchanged: real logins, a real database, tested money rules, backups.
-**It is built and tested locally and in CI. It is not live yet**, because the hosting
-accounts do not exist yet (see "Needed to go live").
+The prototype has been turned into a real application, with the screens unchanged:
+real logins, a real database, tested money rules, backups. **It is live**, with one
+owner login and no customer data yet.
 
+- Live app: https://finance-proto.skaroweb.workers.dev (Cloudflare, built from the
+  `production` branch)
 - Demo (prototype, demo data): https://mithunkumar0604.github.io/finance-proto/
 - Repository: https://github.com/mithunkumar0604/finance-proto
-  - `main` = approved prototype source · `gh-pages` = deployed demo
-  - `production` = the production conversion. **Do not merge into `main` until the
-    production secrets and settings are in place** (the deploy runs on `main`).
+  - `production` = what Cloudflare publishes. Work happens here.
+  - `main` = the default branch. `production` was merged into it on 5 October 2026
+    (fast-forward, history kept), so the nightly backup and the "Run workflow" buttons
+    work. Keep the two the same: after a change is tested on `production`, bring
+    `main` up to it.
+  - `gh-pages` = the deployed demo. Tag `prototype-approved-v1` = the approved prototype.
+
+**What is left** (in this order): the client's 10–20 loan sample import and their check
+of it (`IMPORT.md`) → the full import of about 850 customers → staff and collector
+logins if wanted → the client's own web address when they buy one.
 
 ## How the business works (confirmed by the client)
 
@@ -46,17 +54,19 @@ Full rules, and the assumptions still to confirm: `docs/BUSINESS-RULES.md`.
 | Access rules: owner / collector / staff, enforced by the database | Done |
 | Atomic saves: payment, waiver, new loan, moved date, loan edit, security release | Done |
 | Duplicate protection (double tap, retry) and two-people-at-once protection | Done |
-| Reversing a wrong payment (owner); history never edited or deleted | Done |
+| **Delete Payment** (owner): takes back the latest payment on a loan; the record is kept underneath | Done |
 | Activity log, payment allocations and waiver records written by the database | Done |
 | Sign-in with Supabase Auth; roles from the user's profile | Done |
 | All screens reading and saving through the database | Done |
 | Reports and PDF on real data; older history read on demand | Done |
 | Private file storage with access rules (bucket + policies, tested) | Done |
 | Import of existing customers and loans from CSV (`IMPORT.md`) | Done; tested with 20 sample rows. **No real data imported** |
-| Photo upload buttons on the customer / security forms | **Not wired yet** (still placeholders) |
-| Encrypted nightly backup + restore script | Done; restore tested **locally only** |
-| CI (lint, types, unit tests, build, database tests) | Running on GitHub for `production` |
-| Browser tests, deploy, backup and migration workflows | Written; **not yet run on GitHub** (they need the secrets, or `main`) |
+| Photos and documents of security (jewel, vehicle, document): add, view, replace, remove | Done |
+| Customer photo and ID photo boxes (customer page, new customer) | **Not wired** (still placeholders; not asked for) |
+| Change Password (More → Settings → Security) | Done |
+| Encrypted nightly backup + restore script | Done; runs nightly from `main`; restore tested **locally only** |
+| CI (lint, types, unit tests, build, database tests) | Running on GitHub for `production` and `main` |
+| Browser tests and release checks | Run on GitHub for every push to `main` |
 | Security headers (CSP etc.) for Cloudflare Pages | Done, tested on Cloudflare's local runtime |
 | Handover documents | README, DEPLOYMENT, ENVIRONMENT, BACKUP_RESTORE, IMPORT, docs/BUSINESS-RULES |
 
@@ -145,11 +155,35 @@ static export; project `finance-proto`, connected to the `production` branch).
   import tests) and, before those two columns were added, against the hosted project.
 - The hosted project has the matching migration (8 of 8), still with no client data.
 - **Not done yet:** the real sample import (waiting for the client's sheet), the
-  client's check of 3–5 customers, the full import, and merging into `main`.
+  client's check of 3–5 customers, and the full import.
 - Real client files are personal data: keep them outside this (public) repository.
   Any CSV under `import/` other than the template and the sample is ignored by git.
 
-## Needed to go live (only the project owner can do these)
+## Final pre-handover fixes (5 October 2026)
+
+- **Delete Payment.** On the latest payment of a loan the owner sees "Delete Payment",
+  confirms "Delete this payment?", and may type a reason (otherwise "Entered by
+  mistake"). The loan, its collections and every report go back to how they were. The
+  payment row stays in the database, marked as taken back, with who and why, and the
+  activity list says "Deleted payment of …". There is no "edit payment": delete and
+  enter again. Payments can be deleted one after another, newest first. (The tests for
+  this found, and a migration fixed, a case where the second delete was refused.)
+- **Security photos.** The tiles on a loan's security and the photo boxes in New Loan
+  save to the private `documents` bucket as `<loan id>/<tile>-<time>.<ext>`. JPG, PNG,
+  WebP and PDF; photos are made smaller in the browser before sending; 5 MB limit.
+  Shown only through signed links that last an hour. Owner and staff add, only the
+  owner replaces or removes, a collector only views (enforced by the storage rules).
+- **Change Password.** Current, new (8 or more characters), confirm. This device stays
+  signed in; other devices are signed out.
+- **Tests:** 193 unit, 98 database, 26 browser, all passing. On the live site a
+  temporary owner ran the whole flow with fake data (customer, loan, photos, payment,
+  delete, re-enter, password change, phone / tablet / desktop widths); everything was
+  then removed. **The hosted project is again: 1 login, 1 profile (the owner), every
+  other table empty, no files, 12 migrations, 18 of 18 checks.**
+- **To do by hand in the Supabase dashboard:** turn on "Require current password when
+  updating" if offered (see `ENVIRONMENT.md`), and "Leaked password protection".
+
+## Needed to go live (all done; kept for the record)
 
 1. ~~Create the Supabase project~~ (done). Create the Cloudflare account/project and
    the private backup repository with its token. Steps: `DEPLOYMENT.md`.
@@ -166,7 +200,10 @@ The design is unchanged. Additions, all small:
 
 - a busy state on save buttons, and plain-language error messages;
 - a "Could not open your data" screen;
-- "Entered by mistake? Reverse" on the latest payment (owner only);
+- "Delete Payment" on the latest payment (owner only), with a "Delete this payment?" sheet;
+- the three photo tiles of a security open, add, replace and remove real files; the
+  photo boxes in New Loan show the chosen file's name;
+- a "Security" section in Settings with "Change Password";
 - **Receive Payment**: when more than one period is pending, a "Pending Interest"
   list with a tick box per period and a total; a "− Waive interest" choice under
   Adjustment (owner only); the Notes box becomes "Reason for waiving" when waiving;
@@ -176,7 +213,10 @@ The design is unchanged. Additions, all small:
 
 ## Known gaps and follow-ups
 
-- Photo / document upload is not connected to the buttons yet (storage is ready).
+- The customer photo and ID photo boxes are still placeholders (security photos work).
+- Uploaded photos are not in the nightly backup (it covers the database). Download the
+  `documents` bucket from the Supabase dashboard from time to time.
+- Only the latest payment on a loan can be deleted; older ones after deleting the later ones.
 - An import carries balances, not payment history: "Total collected" on an imported
   loan counts from the import onwards.
 - Device list in Settings shows only "this device"; "Logout all other devices" is real.
@@ -184,7 +224,6 @@ The design is unchanged. Additions, all small:
   of the real sign-in, not the security boundary. Each user should change it.
 - New logins are created in the Supabase dashboard, not in the app.
 - PDFs print "Rs." instead of ₹ (the built-in PDF font has no ₹ sign).
-- Backup does not include uploaded files, only database records.
 - A waiver made on its own (not as part of a payment) cannot be undone in the app.
 
 ## History of changes
@@ -200,6 +239,11 @@ The design is unchanged. Additions, all small:
 7. **Missed interest and import** — the client confirmed that every missed period
    stays pending and the owner chooses what a payment covers; the engine, database
    and Receive Payment sheet follow that. CSV import of existing customers added.
+
+8. **Import as opening positions** — imported loans start from where they stand;
+   customers are identified by their own id, not by phone; day-first dates.
+9. **Final pre-handover fixes** — Delete Payment, security photos, Change Password;
+   `production` merged into `main`; nightly backups running.
 
 ## Tech
 
