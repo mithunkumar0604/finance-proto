@@ -23,10 +23,33 @@ All on free tiers. The web address never changes between deployments.
 
 ### 3. Cloudflare
 
-1. Create a Cloudflare account. Workers & Pages → Create → Pages → "Upload assets",
-   name the project (e.g. `ledgerpro`). The address will be `https://ledgerpro.pages.dev`.
-2. Create an API token with the "Cloudflare Pages: Edit" permission.
-3. Note the account id (Workers & Pages overview, right-hand side).
+The site is a Cloudflare **Worker that serves static files** (project `finance-proto`),
+connected to this GitHub repository and built from the `production` branch.
+Stable address: **https://finance-proto.skaroweb.workers.dev**
+
+How it is built is in `wrangler.jsonc` in this repository: `npx wrangler deploy` runs
+`npm run build`, checks the result (`scripts/check-live-build.mjs`) and publishes the
+`out` folder. There is no server code.
+
+In the Cloudflare dashboard (Workers & Pages → finance-proto → Settings → Build):
+
+| Setting | Value |
+|---|---|
+| Git repository / branch | `mithunkumar0604/finance-proto` / `production` |
+| Build command | leave **empty** |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` |
+| **Build** variables | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (and optionally `NEXT_PUBLIC_BUSINESS_NAME`) |
+
+The two Supabase values must be **build** variables: they are baked into the site
+when it is built. If they are missing, the build stops with a clear message instead
+of publishing a demo site. No secret of any kind belongs in Cloudflare for this app.
+
+Do not use a Next.js preset or `opennextjs-cloudflare`: this app is a static export
+and that adapter fails on it.
+
+To publish by hand from a computer signed in with `npx wrangler login` (uses the
+values in `.env.local`): `npx wrangler deploy`.
 
 ### 4. GitHub settings
 
@@ -110,13 +133,15 @@ owner can then change a role or switch a login off from Users & Roles in the app
 
 ### 7. Go live
 
-Merge the `production` branch into `main`. That runs the checks and browser tests
-and, if they pass, publishes to Cloudflare Pages.
+Pushing to the branch Cloudflare is connected to (`production`) builds and publishes
+the site. `main` still holds the approved prototype; merging `production` into it is
+a separate decision and is not needed for the site to be live.
 
 ### 8. Custom domain (when the client has bought one)
 
-Cloudflare → the Pages project → Custom domains → add the domain. The
-`pages.dev` address keeps working.
+Cloudflare → Workers & Pages → finance-proto → Settings → Domains & Routes → add the
+custom domain. The `workers.dev` address keeps working. Also turn on "Always Use
+HTTPS" for the domain.
 
 ### 9. Existing customers
 
@@ -125,13 +150,10 @@ has been restored successfully (`BACKUP_RESTORE.md`).
 
 ## Every deployment after that
 
-Push to `main`. The Deploy workflow:
-
-1. runs lint, type check, unit tests and the browser tests against a local database;
-2. builds the app with the production settings;
-3. publishes to the same Cloudflare Pages project.
-
-A failed check stops the deployment; the live site is not touched.
+Push to `production`. Cloudflare builds that commit and publishes it to the same
+address. GitHub runs CI (lint, types, unit tests, build, database tests) on the same
+commit; look for a red mark beside it. A build that fails on Cloudflare leaves the
+live site as it was.
 
 ## Changing the database
 
@@ -141,7 +163,7 @@ A failed check stops the deployment; the live site is not touched.
 
 ## Roll back
 
-- App: Cloudflare → the Pages project → Deployments → "Rollback" on an earlier one.
+- App: Cloudflare → Workers & Pages → finance-proto → Deployments → roll back to an earlier version.
 - Database: see `BACKUP_RESTORE.md`.
 
 ## The approved prototype

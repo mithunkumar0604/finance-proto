@@ -13,8 +13,11 @@ They end up in the browser, which is fine: the database decides what each user m
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (`sb_publishable_...`), from Project Settings → API Keys |
 | `NEXT_PUBLIC_BUSINESS_NAME` | Business name shown in the app and on receipts |
 | `NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN` | Optional. Leave unset unless the business owns the domain (see below) |
-| `CLOUDFLARE_PROJECT` | Name of the Cloudflare Pages project (decides the web address) |
 | `BACKUP_REPO` | The private backup repository, as `owner/name` |
+
+The same two Supabase values (and the business name, if used) must also be set in
+**Cloudflare** as **build** variables, because Cloudflare builds the site itself
+(`DEPLOYMENT.md`, section 3). Cloudflare needs no secrets for this app.
 
 ## Secrets
 
@@ -26,8 +29,6 @@ Set as GitHub **Secrets** (same page, Secrets tab). Never in code, never in a
 | `SUPABASE_DB_URL` | backup, migrations | Postgres connection string. Use the **Session pooler** string from Supabase (Connect → Session pooler); GitHub cannot reach the direct one |
 | `BACKUP_PASSPHRASE` | backup | Long random passphrase that encrypts backups. **Keep a copy outside GitHub** (password manager, and on paper with the owner). Without it backups cannot be opened |
 | `BACKUP_REPO_TOKEN` | backup | GitHub fine-grained token with "Contents: read and write" on the backup repository only |
-| `CLOUDFLARE_API_TOKEN` | deploy | Cloudflare token with "Cloudflare Pages: Edit" |
-| `CLOUDFLARE_ACCOUNT_ID` | deploy | Cloudflare account id |
 
 The Supabase **secret key** (`sb_secret_...`, formerly the "service role" key) is not
 used by the app or by any workflow. It bypasses every access rule. Keep it in the

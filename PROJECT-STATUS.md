@@ -92,6 +92,23 @@ Still to do on the hosted project:
   hosted project; see "Last tested" in `BACKUP_RESTORE.md` for what it does and does
   not prove. **The nightly schedule does not run until `production` is merged.**
 
+## Cloudflare (5 October 2026)
+
+Live at **https://finance-proto.skaroweb.workers.dev** (Cloudflare Worker serving the
+static export; project `finance-proto`, connected to the `production` branch).
+
+- Published once by hand with `npx wrangler deploy` from the developer machine, because
+  Cloudflare's own build of the branch was failing (it had auto-detected Next.js and
+  run an adapter that does not fit a static export). `wrangler.jsonc` now tells it how
+  to build; see `DEPLOYMENT.md` section 3 for the dashboard settings to check.
+- Smoke test on the live address: login screen renders at 390, 768 and 1440 px with no
+  overflow; a wrong login is refused by hosted Supabase; sign-up is refused; all 14
+  inner pages return to the login screen without a sign-in; no failed files or errors.
+- Security: CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy and Permissions-Policy
+  are present; all 135 served files were scanned and contain no secret key, database
+  address, token or passphrase (only the publishable key, which is public).
+- The hosted database is still empty and no login exists.
+
 ## Needed to go live (only the project owner can do these)
 
 1. ~~Create the Supabase project~~ (done). Create the Cloudflare account/project and
