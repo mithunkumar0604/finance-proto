@@ -2,7 +2,7 @@
 // The tests run in order and share one database, like a working day.
 
 import { expect, test, type Page } from "@playwright/test";
-import { admin } from "../db/helpers";
+import { admin, ANON, URL as API } from "../db/helpers";
 
 const PASSWORD = "ledger-local-1";
 const OWNER = "98000 12345";
@@ -622,6 +622,49 @@ test("signing out ends the session", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
   await page.goto("/home/");
   await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+});
+
+for (const mode of ["never answers", "fails"] as const) {
+  test(`Logout works at once even when the server ${mode} (weak signal)`, async ({ page }) => {
+    await signInOwner(page);
+    await page.goto("/more/");
+    await page.route("**/auth/v1/logout**", (r) => (mode === "fails" ? r.abort("internetdisconnected") : new Promise(() => {})));
+    await page.getByText("Logout", { exact: true }).click();
+    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible({ timeout: 4000 });
+    // and it is a real sign-out: nothing is left on the device to come back with
+    await page.unroute("**/auth/v1/logout**");
+    await page.goto("/home/");
+    await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+    await page.waitForTimeout(1500);
+    await expect(page).not.toHaveURL(/home/);
+  });
+}
+
+test("Sign out from the lock screen works when the server never answers", async ({ page }) => {
+  await signInOwner(page);
+  await page.goto("/more/");
+  await page.getByText("Lock Application").click();
+  await page.route("**/auth/v1/logout**", () => new Promise(() => {}));
+  await page.getByText("Sign out instead").click();
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible({ timeout: 4000 });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+  await expect(page.getByText("Application Locked")).toHaveCount(0);
+});
+
+test("after Logout the server no longer accepts that sign-in", async ({ page }) => {
+  await signInOwner(page);
+  const token = await page.evaluate(() => {
+    const key = Object.keys(localStorage).find((k) => k.endsWith("-auth-token"))!;
+    return JSON.parse(localStorage.getItem(key)!).refresh_token as string;
+  });
+  await page.goto("/more/");
+  await page.getByText("Logout", { exact: true }).click();
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+  // the saved sign-in cannot be renewed any more
+  await expect
+    .poll(async () => (await fetch(`${API}/auth/v1/token?grant_type=refresh_token`, { method: "POST", headers: { apikey: ANON, "content-type": "application/json" }, body: JSON.stringify({ refresh_token: token }) })).status, { timeout: 10000 })
+    .toBeGreaterThanOrEqual(400);
 });
 
 for (const [name, width, height] of [["mobile", 390, 844], ["tablet", 768, 1024], ["desktop", 1440, 900]] as const) {

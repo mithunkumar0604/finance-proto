@@ -273,8 +273,15 @@ export const actions = {
     set((s) => ({ ...s, session: { ...s.session, locked: false } }));
   },
   async logout(): Promise<void> {
-    if (LIVE) await remote.signOut().catch(() => {});
-    set((s) => ({ ...s, ...(LIVE ? { ...EMPTY_DB, fullLoans: {} } : {}), session: { ...DEFAULT_SESSION } }));
+    if (!LIVE) {
+      set((s) => ({ ...s, session: { ...DEFAULT_SESSION } }));
+      return;
+    }
+    // The device forgets the sign-in first, so Logout never waits for the network ...
+    await remote.signOut().catch(() => {});
+    set((s) => ({ ...s, ...EMPTY_DB, fullLoans: {}, session: { ...DEFAULT_SESSION } }));
+    // ... and the page starts again at the sign-in screen, with nothing of the old sign-in left in memory.
+    window.location.replace(`${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/`);
   },
   /** LIVE: end this person's sign-in on every other device. */
   async logoutOthers(): Promise<void> {

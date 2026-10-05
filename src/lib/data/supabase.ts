@@ -60,6 +60,32 @@ export function supabase(): SupabaseClient {
   return client;
 }
 
+const wait = (ms: number) => new Promise<null>((done) => setTimeout(() => done(null), ms));
+
+/**
+ * Ends the sign-in on THIS device, at once, whatever the connection is like.
+ *
+ * The library's own sign-out asks the server first and only then forgets the sign-in, so
+ * on a weak signal "Logout" seemed to do nothing. Here the device forgets first; the
+ * server is told in the background (so the sign-in cannot be renewed), and if that
+ * message is lost the forgotten sign-in simply runs out on its own.
+ *
+ * The caller reloads the page afterwards: that drops the copy this tab holds in memory.
+ */
+export async function forgetSignIn(): Promise<void> {
+  if (!url || !anonKey) return;
+  const auth = supabase().auth;
+  // reading the saved sign-in is local and normally instant; never wait long for it
+  const got = await Promise.race([auth.getSession().then((r) => r.data.session, () => null), wait(800)]);
+  await Promise.race([auth.stopAutoRefresh().catch(() => {}), wait(300)]);
+  const key = (auth as unknown as { storageKey: string }).storageKey;
+  for (const k of [key, `${key}-user`, `${key}-code-verifier`]) authStorage.removeItem(k);
+  if (got?.access_token) {
+    // keepalive: the request is finished by the browser even though the page reloads
+    void fetch(`${url}/auth/v1/logout?scope=local`, { method: "POST", keepalive: true, headers: { apikey: anonKey, Authorization: `Bearer ${got.access_token}` } }).catch(() => {});
+  }
+}
+
 /**
  * A second, throwaway client that remembers nothing. Used only to check a password
  * (Change Password) without touching this device's sign-in.

@@ -19,7 +19,7 @@ import {
   toAppError,
   userFromRow,
 } from "./mappers";
-import { loginEmail, supabase, throwawayClient } from "./supabase";
+import { forgetSignIn, loginEmail, supabase, throwawayClient } from "./supabase";
 
 const PAGE = 1000;
 const PAYMENT_COLS = "id,loan_id,customer_id,due_id,payment_date,recorded_on,recorded_at,principal_before,interest,principal,other,method,note";
@@ -88,9 +88,8 @@ export async function currentUser(): Promise<SignedIn | null> {
   return data.session ? profileOf(data.session.user.id) : null;
 }
 
-export async function signOut() {
-  await supabase().auth.signOut({ scope: "local" });
-}
+/** Ends the sign-in on this device at once, with or without a connection. Reload the page afterwards. */
+export const signOut = forgetSignIn;
 
 /** Ends this person's sign-in on every other device. */
 export async function signOutOthers() {
