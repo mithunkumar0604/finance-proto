@@ -1,25 +1,24 @@
-name: Deploy
+name: Release checks
 
-# Publishes the app to Cloudflare Pages. Always the same project, so the address
-# never changes: https://<CLOUDFLARE_PROJECT>.pages.dev (and the custom domain once attached).
-# Runs when main changes, after the checks and browser tests pass. See DEPLOYMENT.md.
+# Cloudflare builds and publishes the site itself, straight from the Git branch it is
+# connected to (see wrangler.jsonc and DEPLOYMENT.md). This workflow does not publish
+# anything: it runs the full checks and the browser tests for the same commit, so a
+# problem shows up here as a red mark beside it.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy
-  cancel-in-progress: false
+  group: release-checks-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   browser-tests:
     uses: ./.github/workflows/e2e.yml
 
-  deploy:
-    needs: browser-tests
+  checks:
     runs-on: ubuntu-latest
-    environment: production
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -28,17 +27,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint && npm run typecheck && npm test
-      - name: Build for production
-        run: npm run build
+      - name: Build as Cloudflare does, and refuse a build that is not connected or leaks a secret
+        run: npm run build && node scripts/check-live-build.mjs
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_BUSINESS_NAME: ${{ vars.NEXT_PUBLIC_BUSINESS_NAME }}
           NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN: ${{ vars.NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN }}
-      - name: Refuse to publish a build that is not connected to the database
-        run: test -f out/_headers
-      - name: Publish to Cloudflare Pages
-        run: npx wrangler@4 pages deploy out --project-name "${{ vars.CLOUDFLARE_PROJECT }}" --branch main --commit-dirty=true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -1,0 +1,25 @@
+// Cloudflare deployment. The app is a static export (next.config.ts: output "export"),
+// so Cloudflare only has to build it and serve the files in ./out. There is no server
+// code and nothing secret here.
+//
+// Cloudflare builds this from the `production` branch (Workers Builds, set up in the
+// Cloudflare dashboard) by running `npx wrangler deploy`, which runs the build below first.
+// NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must be set as
+// BUILD variables in Cloudflare: they are baked into the site when it is built.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "finance-proto",
+  "compatibility_date": "2026-10-05",
+  // The stable address: https://finance-proto.<account>.workers.dev
+  "workers_dev": true,
+  "preview_urls": false,
+  "build": {
+    "command": "npm run build && node scripts/check-live-build.mjs"
+  },
+  "assets": {
+    "directory": "./out",
+    // pages are exported as /home/index.html and linked as /home/
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  }
+}
