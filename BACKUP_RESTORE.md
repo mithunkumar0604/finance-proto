@@ -44,7 +44,7 @@ You need Docker, `gpg`, the backup file, and the passphrase.
    It refuses to run on a database that already has customers, and loads everything
    in one transaction (all of it or none of it).
 4. Point the app at the new project: update `NEXT_PUBLIC_SUPABASE_URL`,
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `SUPABASE_DB_URL` in GitHub, then run Deploy.
+   `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_DB_URL` in GitHub, then run Deploy.
 
 Logins are restored with their passwords, so people sign in as before.
 

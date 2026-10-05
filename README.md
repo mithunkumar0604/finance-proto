@@ -46,7 +46,7 @@ npm run dev                 # http://localhost:3000 — demo data, no database
 With a real local database (needs Docker):
 
 ```bash
-npx supabase start          # prints API_URL and ANON_KEY → put them in .env.local
+npx supabase start          # prints API_URL and PUBLISHABLE_KEY → put them in .env.local
 npm run seed:local          # demo book + four logins (password: ledger-local-1)
 npm run dev                 # sign in as 98000 12345 (owner)
 ```
@@ -79,7 +79,8 @@ runtime, with the production security headers.
 | `src/app/(app)/*`, `src/components/*` | Screens and UI (frozen design) |
 | `supabase/migrations/` | Tables, access rules, database functions |
 | `tests/db/`, `tests/e2e/` | Database and browser tests |
-| `scripts/` | Backup, restore, local seed, build helpers |
+| `scripts/` | Backup, restore, local seed, import, hosted-project check, build helpers |
+| `.claude/skills/` | Supabase's official agent skills (reference for AI assistants; not part of the app) |
 | `.github/workflows/` | CI, browser tests, deploy, nightly backup, database changes |
 
 ## Operations

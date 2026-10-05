@@ -42,8 +42,8 @@ npm run import -- book.csv
 
 # 2. Fix the file until it says "No problems found."
 
-# 3. Import. Needs the project URL and the service-role key, on an administrator's computer only.
-IMPORT_SUPABASE_URL=https://xxxx.supabase.co IMPORT_SERVICE_ROLE_KEY=... npm run import -- book.csv --apply
+# 3. Import. Needs the project URL and the secret key, on an administrator's computer only.
+IMPORT_SUPABASE_URL=https://xxxx.supabase.co IMPORT_SUPABASE_SECRET_KEY=sb_secret_... npm run import -- book.csv --apply
 ```
 
 Keep the **batch id** it prints.
@@ -61,9 +61,9 @@ Keep the **batch id** it prints.
 - **Can be taken back**, completely, as long as no payment or waiver has been
   recorded on the imported loans:
   ```bash
-  IMPORT_SUPABASE_URL=... IMPORT_SERVICE_ROLE_KEY=... npm run import -- --undo <batch id>
+  IMPORT_SUPABASE_URL=... IMPORT_SUPABASE_SECRET_KEY=... npm run import -- --undo <batch id>
   ```
-- **Not reachable from the app.** Only someone holding the service-role key can import.
+- **Not reachable from the app.** Only someone holding the secret key can import.
 
 ## Before importing the real book
 

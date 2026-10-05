@@ -10,7 +10,7 @@ They end up in the browser, which is fine: the database decides what each user m
 | Variable | What it is |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (`https://xxxx.supabase.co`) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase public "anon" key |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (`sb_publishable_...`), from Project Settings → API Keys |
 | `NEXT_PUBLIC_BUSINESS_NAME` | Business name shown in the app and on receipts |
 | `NEXT_PUBLIC_LOGIN_EMAIL_DOMAIN` | Optional. Leave unset unless the business owns the domain (see below) |
 | `CLOUDFLARE_PROJECT` | Name of the Cloudflare Pages project (decides the web address) |
@@ -29,8 +29,14 @@ Set as GitHub **Secrets** (same page, Secrets tab). Never in code, never in a
 | `CLOUDFLARE_API_TOKEN` | deploy | Cloudflare token with "Cloudflare Pages: Edit" |
 | `CLOUDFLARE_ACCOUNT_ID` | deploy | Cloudflare account id |
 
-The Supabase **service-role key** is not used by the app or by any workflow. Keep it
-in the Supabase dashboard only.
+The Supabase **secret key** (`sb_secret_...`, formerly the "service role" key) is not
+used by the app or by any workflow. It bypasses every access rule. Keep it in the
+Supabase dashboard; it is needed only on an administrator's computer, for the one-off
+project check (`DEPLOYMENT.md` 5a) and for importing customers (`IMPORT.md`).
+
+Older names still work if they are already set somewhere:
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` for the publishable key, and `*_SERVICE_KEY` /
+`IMPORT_SERVICE_ROLE_KEY` for the secret key.
 
 ## Local development
 
@@ -38,7 +44,7 @@ Copy `.env.example` to `.env.local`.
 
 - Leave the Supabase values empty to run on demo data.
 - For a local database: `npx supabase start`, then put the printed `API_URL` and
-  `ANON_KEY` in `.env.local`, then `npm run seed:local`.
+  `PUBLISHABLE_KEY` in `.env.local`, then `npm run seed:local`.
 
 ## Logins and the e-mail domain
 

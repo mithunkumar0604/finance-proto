@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 4 October 2026.
+Last updated: 5 October 2026.
 
 ## Where things stand
 
@@ -64,10 +64,36 @@ Tests: unit (engine, missed interest, import checker, mappers), database (paymen
 missed interest, waivers, roles, files, import), browser (critical flows at phone,
 tablet and desktop widths). Run them with the commands in `README.md`.
 
+## Hosted Supabase project (5 October 2026)
+
+Project `ledgerpro`, region Singapore (ap-southeast-1). Its URL and keys are in `.env.local` on the developer machine and in GitHub variables, never in this repository.
+
+- All 7 migrations applied with the Supabase CLI (`link` → `db push --dry-run` → `db push`).
+- Read-only verification (`scripts/verify-hosted.sql`): 18 of 18 checks ok.
+- Probed from outside with only the publishable key: every table, the view, inserts
+  and function calls are refused without signing in.
+- Supabase advisors: no errors. The only warnings are the by-design ones described
+  in `DEPLOYMENT.md`.
+- A build pointed at the hosted project reaches hosted sign-in (a wrong login is
+  refused) and contains no secret key.
+- The app uses `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+- **The database holds no data and no logins.** Nothing was seeded.
+
+Still to do on the hosted project:
+
+- **Turn off "Allow new users to sign up"** (Authentication → Sign In / Providers).
+  It is currently ON. A stranger who signs up gets no access to any data (they have
+  no profile), but it should be off.
+- Create the owner login (`DEPLOYMENT.md` step 6).
+- The full database test suite has **not** been run against the hosted project: it
+  needs the secret key, writes test data, and the project must be wiped afterwards
+  (`DEPLOYMENT.md` 5a). Do it before any real data goes in.
+- A real backup and a compared restore (`BACKUP_RESTORE.md`).
+
 ## Needed to go live (only the project owner can do these)
 
-1. Create the Supabase project, the Cloudflare account/project, and the private
-   backup repository with its token. Steps: `DEPLOYMENT.md`.
+1. ~~Create the Supabase project~~ (done). Create the Cloudflare account/project and
+   the private backup repository with its token. Steps: `DEPLOYMENT.md`.
 2. Add the variables and secrets from `ENVIRONMENT.md` to GitHub.
 3. Then, in order (all in `DEPLOYMENT.md`): apply the migrations → verify the empty
    project with the database tests → create the owner login → run one real backup and

@@ -4,8 +4,8 @@
 //   npm run import -- <file.csv> --apply    save it (only if the file has no errors)
 //   npm run import -- --undo <batch id>     take an import back (only before any payment)
 //
-// --apply and --undo need IMPORT_SUPABASE_URL and IMPORT_SERVICE_ROLE_KEY in the
-// environment. Run it from an administrator's computer; never put that key in the app.
+// --apply and --undo need IMPORT_SUPABASE_URL and IMPORT_SUPABASE_SECRET_KEY (the
+// project's secret key, sb_secret_...) in the environment. Run it from an administrator's computer; never put that key in the app.
 
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
@@ -21,8 +21,8 @@ const rupees = (p: number) => `Rs. ${new Intl.NumberFormat("en-IN").format(p / 1
 
 function admin() {
   const url = process.env.IMPORT_SUPABASE_URL;
-  const key = process.env.IMPORT_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("Set IMPORT_SUPABASE_URL and IMPORT_SERVICE_ROLE_KEY to save or undo an import.");
+  const key = process.env.IMPORT_SUPABASE_SECRET_KEY || process.env.IMPORT_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Set IMPORT_SUPABASE_URL and IMPORT_SUPABASE_SECRET_KEY to save or undo an import.");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 

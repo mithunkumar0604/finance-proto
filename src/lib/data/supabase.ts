@@ -1,11 +1,13 @@
-// The one Supabase client. Only the public URL and the public (anon) key are used in
+// The one Supabase client. Only the project URL and the PUBLISHABLE key are used in
 // the browser; what a signed-in user may read or change is enforced by the database
-// (Row Level Security), never by this file.
+// (Row Level Security), never by this file. The secret key is never used by the app.
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (sb_publishable_...) is Supabase's current name.
+// The older NEXT_PUBLIC_SUPABASE_ANON_KEY is still read so an existing setup keeps working.
+const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 /** true when the app is connected to a database; false = the built-in demo data. */
 export const LIVE = !!(url && anonKey);

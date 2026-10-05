@@ -8,5 +8,5 @@ export default function globalSetup() {
   const run = (cmd: string, env: Record<string, string> = {}) => execSync(cmd, { stdio: "inherit", env: { ...process.env, ...env } });
   run("npx supabase db reset");
   run("npm run seed:local");
-  run("npm run build", { NEXT_PUBLIC_SUPABASE_URL: URL, NEXT_PUBLIC_SUPABASE_ANON_KEY: ANON, NEXT_PUBLIC_BASE_PATH: "" });
+  run("npm run build", { NEXT_PUBLIC_SUPABASE_URL: URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ANON, NEXT_PUBLIC_BASE_PATH: "" });
 }

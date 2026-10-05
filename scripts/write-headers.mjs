@@ -2,7 +2,11 @@
 // The Content-Security-Policy lets the page talk to this build's Supabase project
 // and nothing else, so it is generated from NEXT_PUBLIC_SUPABASE_URL.
 
+import nextEnv from "@next/env";
 import { writeFileSync } from "node:fs";
+
+// Read the same .env files the build itself reads (.env.local, .env.production.local, ...).
+nextEnv.loadEnvConfig(process.cwd(), false, { info() {}, error: console.error });
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
 if (!url) {

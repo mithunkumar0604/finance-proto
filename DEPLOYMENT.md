@@ -7,9 +7,10 @@ All on free tiers. The web address never changes between deployments.
 
 ### 1. Supabase
 
-1. Create a project at supabase.com (region: Mumbai). Save the database password.
+1. Create a project at supabase.com (region: Mumbai is closest; any works). Save the database password.
 2. Authentication → Sign In / Providers: turn **off** "Allow new users to sign up".
-3. Copy the project URL and the anon key (Project Settings → API).
+   Check it took effect: `curl -s <project URL>/auth/v1/settings -H "apikey: <publishable key>"` must show `"disable_signup":true`.
+3. Copy the project URL and the **publishable** key (Project Settings → API Keys).
 4. Copy the **Session pooler** connection string (Connect → Session pooler) and put
    the database password into it. This is `SUPABASE_DB_URL`.
 
@@ -33,12 +34,28 @@ Add the variables and secrets listed in `ENVIRONMENT.md`.
 
 ### 5. Create the tables
 
-GitHub → Actions → **Apply database changes** → Run workflow → type `apply`.
-It takes a backup, then applies everything in `supabase/migrations`.
+From a computer where the Supabase CLI is logged in (`npx supabase login`):
 
-(The first run's backup step needs the tables to exist. For the very first time only,
-run this from a computer instead:
-`npx supabase db push --db-url "<SUPABASE_DB_URL>"`.)
+```bash
+npx supabase link --project-ref <PROJECT_REF>
+npx supabase db push --dry-run     # lists what would be applied; changes nothing
+npx supabase db push               # applies it
+npx supabase db query --linked -f scripts/verify-hosted.sql    # read-only: every line must say ok = true
+npx supabase db advisors --linked  # Supabase's own security and performance checks
+```
+
+`verify-hosted.sql` checks, without writing anything: every table has row level
+security; nothing is reachable without signing in; signed-in users cannot write money
+tables or delete anything; only the app's functions can be called; the documents
+bucket is private; the history locks exist; the interest and date rules give the
+tested answers.
+
+The advisors will list "Signed-In Users Can Execute SECURITY DEFINER Function" for
+the app's own functions (`record_payment`, `create_loan`, …). That is by design:
+those functions are the only way money changes, and each one checks who is calling.
+
+Later changes to the database can also be applied from GitHub (Actions → **Apply
+database changes**), which takes a backup first.
 
 ### 5a. Verify the new project (before any real data goes in)
 
@@ -48,8 +65,8 @@ interest, waivers, private files and the import.
 
 ```bash
 SUPABASE_TEST_URL=https://xxxx.supabase.co \
-SUPABASE_TEST_ANON_KEY=<anon key> \
-SUPABASE_TEST_SERVICE_KEY=<service-role key> \
+SUPABASE_TEST_PUBLISHABLE_KEY=<publishable key> \
+SUPABASE_TEST_SECRET_KEY=<secret key> \
 SUPABASE_TEST_ALLOW_REMOTE=this-project-has-no-real-data \
 npm run test:db
 ```
