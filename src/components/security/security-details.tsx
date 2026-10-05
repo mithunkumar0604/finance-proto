@@ -2,7 +2,9 @@
 
 import { Image as ImageIcon } from "lucide-react";
 import { SecurityIcon } from "@/components/loans/loan-card";
+import { SecurityFiles } from "@/components/security/security-files";
 import { Chip, Row } from "@/components/ui/bits";
+import { slotsFor } from "@/lib/files";
 import { money } from "@/lib/format";
 import type { Security } from "@/lib/types";
 
@@ -12,7 +14,8 @@ export function securityTitle(sec: Security) {
   return sec.kind === "vehicle" ? "Vehicle Security" : sec.kind === "jewel" ? "Gold Jewellery" : sec.kind === "document" ? "Document Security" : "Other Security";
 }
 
-export function SecurityDetails({ sec }: { sec: Security }) {
+/** `files` (LIVE): the loan whose photos are shown in the tiles, and what this person may do with them. */
+export function SecurityDetails({ sec, files }: { sec: Security; files?: { loanId: string; canAdd: boolean; canRemove: boolean } }) {
   return (
     <div>
       <div className="flex items-center gap-3">
@@ -63,14 +66,18 @@ export function SecurityDetails({ sec }: { sec: Security }) {
         {sec.kind === "other" && <Row label="Storage" value={sec.storage} />}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {(sec.kind === "vehicle" ? ["Front", "Side", "RC Book"] : sec.kind === "jewel" ? ["Item photo", "Weighing", "Packet"] : ["Page 1", "Page 2", "Receipt"]).map((t) => (
-          <div key={t} className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-2xl bg-line-2 text-xs text-muted">
-            <ImageIcon className="size-5 opacity-60" />
-            {t}
-          </div>
-        ))}
-      </div>
+      {files ? (
+        <SecurityFiles key={files.loanId} kind={sec.kind} {...files} />
+      ) : (
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {slotsFor(sec.kind).map((t) => (
+            <div key={t.id} className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-2xl bg-line-2 text-xs text-muted">
+              <ImageIcon className="size-5 opacity-60" />
+              {t.label}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

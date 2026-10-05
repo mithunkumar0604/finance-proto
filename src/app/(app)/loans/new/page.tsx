@@ -23,11 +23,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, type ReactNode } from "react";
 import { PageHeader } from "@/components/layout/page-header";
-import { buildSecurity, EMPTY_SECURITY, SecurityFields, type SecurityDraft, type SecurityKind } from "@/components/loans/security-form";
+import { buildSecurity, EMPTY_SECURITY, SecurityFields, type SecurityDraft, type SecurityKind, type SecurityPhotos } from "@/components/loans/security-form";
 import { securityLabel } from "@/components/loans/loan-card";
 import { Avatar, Card, Row, Skeleton } from "@/components/ui/bits";
 import { Button, LinkButton } from "@/components/ui/button";
 import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
+import { toast } from "@/components/ui/toast";
+import { slotsFor } from "@/lib/files";
 import { loanDefaults, previewFirstCollection } from "@/lib/finance/engine";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
@@ -74,6 +76,7 @@ function Wizard() {
   const [principalPerDue, setPrincipalPerDue] = useState<number | "">("");
   const [secKind, setSecKind] = useState<SecurityKind>("none");
   const [sec, setSec] = useState<SecurityDraft>(EMPTY_SECURITY);
+  const [photos, setPhotos] = useState<SecurityPhotos>({});
   const [created, setCreated] = useState<Loan | null>(null);
   // One key for this wizard: pressing Create twice, or again after a lost connection, makes one loan.
   const [saveKey] = useState(newKey);
@@ -113,8 +116,17 @@ function Wizard() {
   const preview = previewFirstCollection({ ...draft, principalLeft: draft.amount });
 
   const create = async () => {
-    const loan = await run(() => actions.createLoan(draft, saveKey));
-    if (loan) setCreated(loan);
+    // One "save": the loan first, then its photos. If a photo fails the loan stays, and the
+    // photo can be added from the loan's page.
+    const saved = await run(async () => {
+      const loan = await actions.createLoan(draft, saveKey);
+      const tiles = new Set(loan.security ? slotsFor(loan.security.kind).map((t) => t.id) : []);
+      const failed = await actions.saveLoanPhotos(loan.id, Object.fromEntries(Object.entries(photos).filter(([slot]) => tiles.has(slot))));
+      return { loan, failed };
+    });
+    if (!saved) return;
+    if (saved.failed) toast(`The loan is saved, but ${saved.failed === 1 ? "a photo" : `${saved.failed} photos`} could not be saved. Add ${saved.failed === 1 ? "it" : "them"} from the loan page.`, "error");
+    setCreated(saved.loan);
   };
 
   if (created)
@@ -297,7 +309,7 @@ function Wizard() {
                 { value: "other", label: "Other", icon: <Package className="size-5" /> },
               ]}
             />
-            <SecurityFields kind={secKind} d={sec} onChange={setSec} />
+            <SecurityFields kind={secKind} d={sec} onChange={setSec} photos={photos} onPhotos={setPhotos} />
           </div>
         )}
 

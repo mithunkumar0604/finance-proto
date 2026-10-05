@@ -230,33 +230,270 @@ test("someone else changed the loan: the stale screen is refused, not saved over
   expect(await paymentsOf("LP-1131")).toHaveLength(0);
 });
 
-test("a payment entered by mistake can be reversed by the owner, and stays on record", async ({ page }) => {
+test("Delete Payment: the owner deletes a wrong payment; balances, pending interest and reports go back, and the record is kept", async ({ page }) => {
   await signInOwner(page);
   await openLoan(page, "LP-1163");
   const before = await loanRow("LP-1163");
+  const openDues = async () => (await admin.from("dues").select("id,remaining,interest_paid").eq("loan_id", "LP-1163").eq("cancelled", false).gt("remaining", 0).order("due_date")).data!;
+  const duesBefore = await openDues();
+
+  // two payments: the coming collection's interest, then some principal
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await confirmAndFinish(page);
+  const afterInterest = await openDues();
+  expect(afterInterest).not.toEqual(duesBefore);
   await page.getByRole("button", { name: "Receive Payment" }).first().click();
   await page.getByRole("button", { name: /More options/ }).click();
   await page.getByRole("dialog").getByRole("button", { name: /^Pay Principal/ }).click();
   await page.locator("#pay-principal").fill("5000");
   await confirmAndFinish(page);
   expect((await loanRow("LP-1163")).principal_left).toBe(before.principal_left - 500000);
+  const [interestPaid, paid] = (await paymentsOf("LP-1163")).sort((x, y) => x.recorded_at.localeCompare(y.recorded_at));
+  expect(interestPaid.interest).toBeGreaterThan(0);
+  expect(paid).toMatchObject({ interest: 0, principal: 500000 });
+  const total = "₹" + new Intl.NumberFormat("en-IN").format((paid.interest + paid.principal + paid.other) / 100);
 
-  await page.screenshot({ path: "test-results/reverse-link.png", fullPage: true });
-  await page.getByRole("button", { name: /Entered by mistake/ }).click();
-  await page.screenshot({ path: "test-results/reverse-sheet.png" });
-  await expect(page.getByRole("button", { name: "Reverse Payment" })).toBeDisabled();
-  await page.getByPlaceholder(/wrong loan/).fill("Typed on the wrong loan");
-  await page.getByRole("button", { name: "Reverse Payment" }).click();
-  await expect(page.getByText("Payment reversed")).toBeVisible();
+  // today's report: this loan's line shows the principal now left
+  const rupee = (paise: number) => "₹" + new Intl.NumberFormat("en-IN").format(paise / 100);
+  const report = async () => {
+    await page.goto("/reports/?range=today&show=paid");
+    await expect(page.locator("#report-results h2")).toBeVisible();
+    const text = (await page.locator("#report-results").innerText()).replace(/\s+/g, " ");
+    // the part of the report about this loan
+    return text.split("LP-1163")[1]?.split(" Loan · ")[0] ?? "";
+  };
+  expect(await report()).toContain(`Principal Left ${rupee(before.principal_left - 500000)}`);
 
+  // only the owner's word "Delete" is used; nothing is asked that needs accounting knowledge
+  await openLoan(page, "LP-1163");
+  await page.getByRole("button", { name: "Delete Payment" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("heading", { name: "Delete this payment?" })).toBeVisible();
+  await expect(sheet).toContainText(total);
+  await expect(sheet.getByPlaceholder("Entered by mistake")).toBeVisible();
+  await expect(sheet).not.toContainText(/revers/i);
+  await page.screenshot({ path: "test-results/delete-payment-sheet.png" });
+  // Cancel changes nothing
+  await sheet.getByRole("button", { name: "Cancel" }).click();
+  expect((await paymentsOf("LP-1163")).every((p) => p.reversed_at === null)).toBe(true);
+
+  // no reason typed: it is deleted with the default reason
+  await page.getByRole("button", { name: "Delete Payment" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete Payment" }).click();
+  await expect(page.getByText("Payment deleted")).toBeVisible();
+
+  // principal is exactly as before; the interest payment before it is untouched
   const after = await loanRow("LP-1163");
-  expect(after.principal_left).toBe(before.principal_left);
-  const [pay] = await paymentsOf("LP-1163");
-  expect(pay.reversed_at).not.toBeNull();
-  expect(pay.reverse_reason).toBe("Typed on the wrong loan");
-  // the reversed payment no longer shows as money received
+  expect(after).toMatchObject({ principal_left: before.principal_left, status: before.status });
+  expect(await openDues()).toEqual(afterInterest);
+  // the record is kept underneath
+  const kept = (await paymentsOf("LP-1163")).find((p) => p.id === paid.id)!;
+  expect(kept.reversed_at).not.toBeNull();
+  expect(kept.reverse_reason).toBe("Entered by mistake");
+
+  // on screen it is gone at once, and still gone after a reload: not in the loan's timeline, not in today's report
+  await expect(page.locator("main")).not.toContainText(total);
+  await expect(page.locator("main")).toContainText(rupee(before.principal_left));
   await page.reload();
-  await expect(page.getByRole("button", { name: /Entered by mistake/ })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Loan LP-1163" })).toBeVisible();
+  await expect(page.locator("main")).toContainText("Interest Received");
+  await expect(page.locator("main")).not.toContainText(total);
+  await expectClean(page, "loan after delete");
+  const line = await report();
+  expect(line).toContain(`Principal Left ${rupee(before.principal_left)}`);
+  expect(line).toContain(`Paid ${rupee(interestPaid.interest)}`);
+
+  // the payment before it is now the latest, so it can be deleted too: its interest is pending again
+  await openLoan(page, "LP-1163");
+  await page.getByRole("button", { name: "Delete Payment" }).click();
+  await page.getByRole("dialog").getByPlaceholder("Entered by mistake").fill("Paid on another loan");
+  await page.getByRole("dialog").getByRole("button", { name: "Delete Payment" }).click();
+  await expect(page.getByText("Payment deleted")).toBeVisible();
+  expect(await openDues()).toEqual(duesBefore);
+  expect((await paymentsOf("LP-1163")).find((p) => p.id === interestPaid.id)!.reverse_reason).toBe("Paid on another loan");
+  // nothing was paid on this loan today any more, so it has left today's "paid" report
+  expect(await report()).toBe("");
+
+  // the owner's activity list says what happened, in plain words
+  await page.goto("/activity/");
+  await expect(page.locator("main")).toContainText(`Deleted payment of ${total} on LP-1163 · Entered by mistake`);
+  await expect(page.locator("main")).not.toContainText(/Reversed/);
+});
+
+test("a collector is not offered Delete Payment", async ({ page }) => {
+  await signInOwner(page);
+  await openLoan(page, "LP-1088"); // Murugan, a customer of the collector Mani
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await confirmAndFinish(page);
+  await expect(page.getByRole("button", { name: "Delete Payment" })).toHaveCount(1);
+  await page.goto("/more/");
+  await page.getByText("Logout").click();
+
+  await signIn(page, COLLECTOR);
+  await page.waitForURL(/home/);
+  await openLoan(page, "LP-1088");
+  await expect(page.locator("main")).toContainText("Interest Received");
+  await expect(page.getByRole("button", { name: "Delete Payment" })).toHaveCount(0);
+});
+
+const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+const filesOf = async (loanId: string) => ((await admin.storage.from("documents").list(loanId)).data ?? []).map((x) => x.name).sort();
+
+async function chooseFile(page: Page, click: () => Promise<void>, file: { name: string; mimeType: string; buffer: Buffer }) {
+  const [chooser] = await Promise.all([page.waitForEvent("filechooser"), click()]);
+  await chooser.setFiles(file);
+}
+
+test("security photos: saved privately, shown through a signed link, replaced and removed by the owner", async ({ page }) => {
+  await admin.storage.from("documents").remove((await filesOf("LP-1088")).map((n) => `LP-1088/${n}`));
+  await signInOwner(page);
+  await openLoan(page, "LP-1088"); // vehicle security: Front, Side, RC Book
+
+  // a file of the wrong kind is refused with a clear message, and nothing is stored
+  await chooseFile(page, () => page.getByRole("button", { name: "Add Front" }).click(), { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
+  await expect(page.getByRole("alert").filter({ hasText: "Use a photo (JPG, PNG or WebP) or a PDF" })).toBeVisible();
+  expect(await filesOf("LP-1088")).toEqual([]);
+
+  // a photo
+  await chooseFile(page, () => page.getByRole("button", { name: "Add Front" }).click(), { name: "front.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("Front saved")).toBeVisible();
+  const tile = page.getByRole("button", { name: "Open Front" });
+  await expect(tile).toBeVisible();
+  const src = await tile.locator("img").getAttribute("src");
+  expect(src).toContain("/storage/v1/object/sign/documents/LP-1088/front-");
+  expect(src).toContain("token=");
+  await expect.poll(() => tile.locator("img").evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+  const [stored] = await filesOf("LP-1088");
+  expect(stored).toMatch(/^front-\d+\.png$/);
+
+  // it has no public address, and the signed link does not work without its token
+  expect((await fetch(admin.storage.from("documents").getPublicUrl(`LP-1088/${stored}`).data.publicUrl)).ok).toBe(false);
+  expect((await fetch(src!.split("?")[0])).ok).toBe(false);
+  expect((await fetch(src!)).ok).toBe(true);
+
+  // a PDF scan in another tile
+  await chooseFile(page, () => page.getByRole("button", { name: "Add RC Book" }).click(), { name: "rc.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF\n") });
+  await expect(page.getByText("RC Book saved")).toBeVisible();
+  expect(await filesOf("LP-1088")).toHaveLength(2);
+
+  // still there after a reload; opening shows it with Open / Replace / Remove
+  await page.reload();
+  await page.getByRole("button", { name: "Open Front" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("link", { name: "Open" })).toHaveAttribute("href", /object\/sign\/documents\/LP-1088\/front-/);
+  await expect(sheet.getByRole("link", { name: "Open" })).toHaveAttribute("target", "_blank");
+  await page.screenshot({ path: "test-results/security-photo-sheet.png" });
+
+  // replace: the new one is kept, the old one is gone
+  await chooseFile(page, () => sheet.getByRole("button", { name: "Replace" }).click(), { name: "front2.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("Front replaced")).toBeVisible();
+  const afterReplace = await filesOf("LP-1088");
+  expect(afterReplace.filter((n) => n.startsWith("front-"))).toHaveLength(1);
+  expect(afterReplace).not.toContain(stored);
+  await expectClean(page, "loan with photos");
+  await page.screenshot({ path: "test-results/security-photo-tiles.png", fullPage: true });
+
+  // remove asks first
+  await page.getByRole("button", { name: "Open Front" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Remove this file?");
+  await page.getByRole("dialog").getByRole("button", { name: "Yes, Remove" }).click();
+  await expect(page.getByText("Front removed")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add Front" })).toBeVisible();
+  expect((await filesOf("LP-1088")).filter((n) => n.startsWith("front-"))).toHaveLength(0);
+
+  // the loan's collector can look at what is there, but cannot add or remove
+  await page.goto("/more/");
+  await page.getByText("Logout").click();
+  await signIn(page, COLLECTOR);
+  await page.waitForURL(/home/);
+  await openLoan(page, "LP-1088");
+  await expect(page.getByRole("button", { name: "Open RC Book" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
+  await page.getByRole("button", { name: "Open RC Book" }).click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Open" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Remove|Replace/ })).toHaveCount(0);
+});
+
+test("a photo chosen while giving a loan is saved with the new loan", async ({ page }) => {
+  await signInOwner(page);
+  await page.goto("/loans/new/?customer=C001");
+  await page.locator("input[inputmode=numeric]").first().fill("20000");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("Interest every month").click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  // security step: gold jewellery with a photo
+  await page.getByRole("button", { name: /Jewel/ }).first().click();
+  await page.getByPlaceholder("e.g. Chain + Ring").fill("Test chain");
+  await chooseFile(page, () => page.getByText("Add jewel photo").click(), { name: "chain.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("chain.png")).toBeVisible();
+  await page.screenshot({ path: "test-results/new-loan-photo.png", fullPage: true });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  const id = new URL(page.url()).searchParams.get("id")!;
+  await expect(page.getByRole("button", { name: "Open Item photo" })).toBeVisible();
+  expect(await filesOf(id)).toHaveLength(1);
+  expect((await filesOf(id))[0]).toMatch(/^item-\d+\.png$/);
+});
+
+test("Change Password: the current one is checked, the new one works, the old one stops working", async ({ page }) => {
+  const STAFF = "98000 45678";
+  const NEW = "new-password-2026";
+  const { data: who } = await admin.from("profiles").select("id").eq("phone", "9800045678").single();
+  // start from the known password (a rerun on the same database may have changed it)
+  await admin.auth.admin.updateUserById(who!.id, { password: PASSWORD });
+
+  try {
+  await signIn(page, STAFF);
+  await page.waitForURL(/home/);
+  await page.goto("/more/");
+  await page.getByRole("link", { name: /Settings/ }).click();
+  await page.getByRole("button", { name: /Change Password/ }).click();
+  const sheet = page.getByRole("dialog");
+  const boxes = sheet.locator("input[type=password]");
+  await expect(boxes).toHaveCount(3);
+  const submit = sheet.getByRole("button", { name: "Change Password" });
+
+  // clear validation before anything is sent
+  await boxes.nth(0).fill(PASSWORD);
+  await boxes.nth(1).fill("short");
+  await boxes.nth(2).fill("short");
+  await submit.click();
+  await expect(sheet.getByRole("alert")).toContainText("at least 8 characters");
+  await boxes.nth(1).fill(NEW);
+  await boxes.nth(2).fill(NEW + "x");
+  await submit.click();
+  await expect(sheet.getByRole("alert")).toContainText("do not match");
+  await page.screenshot({ path: "test-results/change-password-sheet.png" });
+
+  // a wrong current password fails clearly and changes nothing
+  await boxes.nth(0).fill("not-my-password");
+  await boxes.nth(2).fill(NEW);
+  await submit.click();
+  await expect(page.getByRole("alert").filter({ hasText: "The current password is wrong" })).toBeVisible();
+  await expect(sheet).toBeVisible();
+
+  // the right one: changed, and still signed in on this device
+  await boxes.nth(0).fill(PASSWORD);
+  await submit.click();
+  await expect(page.getByText("Password changed")).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+
+  // sign out: the old password is refused, the new one works
+  await page.goto("/more/");
+  await page.getByText("Logout").click();
+  await signIn(page, STAFF, PASSWORD);
+  await expect(page.getByRole("alert").filter({ hasText: "Wrong mobile number or password" })).toBeVisible();
+  await signIn(page, STAFF, NEW);
+  await page.waitForURL(/home/);
+  } finally {
+    await admin.auth.admin.updateUserById(who!.id, { password: PASSWORD });
+  }
 });
 
 test("typing more principal than is owed is refused, not trimmed", async ({ page }) => {
@@ -391,7 +628,7 @@ for (const [name, width, height] of [["mobile", 390, 844], ["tablet", 768, 1024]
   test(`22. layout holds at ${name} width (${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await signInOwner(page);
-    for (const path of ["/home/", "/collections/", "/customers/", "/customer/?id=C001", "/loans/", "/loan/?id=LP-1024", "/reports/", "/reports/?person=C001&range=year", "/security/", "/more/", "/settings/", "/users/", "/activity/"]) {
+    for (const path of ["/home/", "/collections/", "/customers/", "/customer/?id=C001", "/loans/", "/loan/?id=LP-1024", "/reports/", "/reports/?person=C001&range=year", "/loan/?id=LP-1088", "/security/", "/more/", "/settings/", "/users/", "/activity/"]) {
       await page.goto(path);
       await page.locator("main").waitFor();
       await page.waitForTimeout(400);

@@ -39,6 +39,18 @@ All amounts are whole paise. Nothing is stored or added as a decimal number.
 - Waiving: the owner only. Full Settlement → "− Waive", or More options → Adjustment →
   "− Waive interest". The reason goes in Notes and is required.
 
+## Correcting a wrong payment (5 October 2026)
+
+- There is no "edit payment". The owner uses **Delete Payment** and enters it again.
+- Only the **latest** payment on a loan can be deleted. To delete an older one, delete
+  the later ones first.
+- Deleting puts the loan back exactly as it was before that payment: principal left,
+  each collection's paid and pending amounts, a loan that the payment had closed is
+  open again. The payment leaves every total and report.
+- A reason is optional; with none, "Entered by mistake" is recorded.
+- Underneath, nothing is erased: the payment row stays, marked as taken back, with who
+  did it, when and why, and the activity log gets a "Deleted payment of …" line.
+
 ## Loans brought in from the old book (confirmed 5 October 2026)
 
 - An imported loan is an **opening position**: principal left, what is pending, and

@@ -1,6 +1,8 @@
 "use client";
 
-import { Field, Input, MoneyInput, OptionGrid, PhotoPlaceholder, Textarea } from "@/components/ui/form";
+import { Field, Input, MoneyInput, OptionGrid, PhotoPick, PhotoPlaceholder, Textarea } from "@/components/ui/form";
+import { LIVE } from "@/lib/data/supabase";
+import { FILE_ACCEPT, fileProblem } from "@/lib/files";
 import type { Security } from "@/lib/types";
 
 export type SecurityKind = "none" | Security["kind"];
@@ -91,8 +93,40 @@ export function buildSecurity(kind: SecurityKind, d: SecurityDraft, customerName
   return { kind: "other", description: d.description || "Other security", storage: d.storage, status: "held" };
 }
 
-export function SecurityFields({ kind, d, onChange }: { kind: SecurityKind; d: SecurityDraft; onChange: (d: SecurityDraft) => void }) {
+/** Photos chosen in the form, by the tile they belong to (see slotsFor). They are saved after the loan is. */
+export type SecurityPhotos = Record<string, File>;
+
+export function SecurityFields({
+  kind,
+  d,
+  onChange,
+  photos,
+  onPhotos,
+}: {
+  kind: SecurityKind;
+  d: SecurityDraft;
+  onChange: (d: SecurityDraft) => void;
+  photos: SecurityPhotos;
+  onPhotos: (p: SecurityPhotos) => void;
+}) {
   const set = (k: keyof SecurityDraft) => (e: { target: { value: string } }) => onChange({ ...d, [k]: e.target.value });
+  const photo = (slot: string, label: string) =>
+    !LIVE ? (
+      <PhotoPlaceholder label={label} />
+    ) : (
+    <PhotoPick
+      label={label}
+      accept={FILE_ACCEPT}
+      problem={fileProblem}
+      file={photos[slot]}
+      onPick={(f) => {
+        const next = { ...photos };
+        if (f) next[slot] = f;
+        else delete next[slot];
+        onPhotos(next);
+      }}
+    />
+  );
 
   if (kind === "none") return null;
 
@@ -125,7 +159,7 @@ export function SecurityFields({ kind, d, onChange }: { kind: SecurityKind; d: S
               <Input value={d.storage} onChange={set("storage")} />
             </Field>
           </div>
-          <PhotoPlaceholder label="Add jewel photo" />
+          {photo("item", "Add jewel photo")}
           <Field label="Notes">
             <Textarea value={d.notes} onChange={set("notes")} className="min-h-20" placeholder="Any marks, stones, damage…" />
           </Field>
@@ -175,8 +209,8 @@ export function SecurityFields({ kind, d, onChange }: { kind: SecurityKind; d: S
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <PhotoPlaceholder label="Vehicle photo" />
-            <PhotoPlaceholder label="RC photo" />
+            {photo("front", "Vehicle photo")}
+            {photo("rc", "RC photo")}
           </div>
         </>
       )}
@@ -203,7 +237,7 @@ export function SecurityFields({ kind, d, onChange }: { kind: SecurityKind; d: S
           <Field label="Storage Location">
             <Input value={d.storage} onChange={set("storage")} />
           </Field>
-          <PhotoPlaceholder label="Add document image" />
+          {photo("page1", "Add document image")}
         </>
       )}
 

@@ -3,6 +3,7 @@
 // AppError with a message that is safe to show.
 
 import type { PaymentResult } from "../finance/engine";
+import { fileProblem, filePath, fileType, isPdf, latestPerSlot, MAX_FILE_BYTES } from "../files";
 import type { Activity, AppUser, Customer, Due, ISODate, Loan, Payment, Security } from "../types";
 import {
   activityFromRow,
@@ -18,7 +19,7 @@ import {
   toAppError,
   userFromRow,
 } from "./mappers";
-import { loginEmail, supabase } from "./supabase";
+import { loginEmail, supabase, throwawayClient } from "./supabase";
 
 const PAGE = 1000;
 const PAYMENT_COLS = "id,loan_id,customer_id,due_id,payment_date,recorded_on,recorded_at,principal_before,interest,principal,other,method,note";
@@ -95,6 +96,47 @@ export async function signOut() {
 export async function signOutOthers() {
   const { error } = await supabase().auth.signOut({ scope: "others" });
   if (error) throw toAppError(error);
+}
+
+/**
+ * Changes the signed-in person's password. The current password is checked first, on a
+ * separate throwaway sign-in, so a wrong one changes nothing and this device stays signed
+ * in. Afterwards every other device is signed out; resolves to false if that last step
+ * could not be done (the password is changed all the same).
+ */
+export async function changePassword(current: string, next: string): Promise<boolean> {
+  const { data } = await supabase().auth.getSession();
+  const email = data.session?.user.email;
+  if (!email) throw new AppError("SIGNED_OUT", "You have been signed out. Please sign in again.");
+
+  const check = throwawayClient();
+  let res;
+  try {
+    res = await check.auth.signInWithPassword({ email, password: current });
+  } catch (e) {
+    throw toAppError(e);
+  }
+  if (res.error || !res.data.user) {
+    if (res.error && /fetch|network/i.test(res.error.message)) throw toAppError(res.error);
+    if (res.error?.status === 429) throw new AppError("TOO_MANY", "Too many tries. Wait a minute and try again.");
+    // only a refused password is called wrong; a server fault is not the user's mistake
+    if (res.error?.code === "invalid_credentials" || res.error?.status === 400) throw new AppError("BAD_PASSWORD", "The current password is wrong. Nothing was changed.");
+    throw new AppError("REJECTED", "The password could not be checked just now. Nothing was changed. Please try again.");
+  }
+  // end the throwaway sign-in only; this device's own sign-in is a different one
+  await check.auth.signOut({ scope: "local" }).catch(() => {});
+
+  // current_password is checked by the server too when the project is set to require it
+  const { error } = await supabase().auth.updateUser({ password: next, current_password: current });
+  if (error) {
+    if (/fetch|network/i.test(error.message)) throw toAppError(error);
+    if (error.code === "same_password" || /different from the old/i.test(error.message)) throw new AppError("SAME_PASSWORD", "The new password must be different from the current one.");
+    if (error.code === "weak_password") throw new AppError("WEAK_PASSWORD", "This password is not accepted. Use at least 8 characters and try a different one.");
+    throw new AppError("REJECTED", "The password could not be changed. Nothing was changed. Please try again.");
+  }
+  // anyone else who was signed in with the old password is signed out
+  const others = await supabase().auth.signOut({ scope: "others" }).catch((e) => ({ error: e }));
+  return !others.error;
 }
 
 /** Calls back when the sign-in ends (signed out elsewhere, or it expired and could not be renewed). */
@@ -269,4 +311,109 @@ export async function updateUser(id: string, patch: Partial<Pick<AppUser, "name"
   const { data: row, error } = await supabase().from("profiles").update(patch).eq("id", id).select("*").single();
   if (error) throw toAppError(error);
   return userFromRow(row);
+}
+
+// ---------------------------------------------------------------------------
+// Photos and documents of what is held as security
+// ---------------------------------------------------------------------------
+// One private storage bucket. A file is "<loan id>/<tile>-<time>.<ext>". Who may read,
+// add and remove is decided by the bucket's policies in the database (whoever can see
+// the loan reads; owner and staff add; only the owner removes). Nothing has a public
+// address: a file is shown through a signed link that stops working after an hour.
+
+const BUCKET = "documents";
+const LINK_SECONDS = 3600;
+
+export interface LoanFile {
+  /** Full path in the bucket. */
+  path: string;
+  /** Which tile it belongs to. */
+  slot: string;
+  pdf: boolean;
+  /** Signed link, valid for an hour. */
+  url: string;
+}
+
+const fileError = (e: { message?: string; statusCode?: string | number; status?: number } | null, fallback: string): AppError => {
+  const msg = String(e?.message ?? "");
+  if (/failed to fetch|fetch failed|networkerror|load failed/i.test(msg)) return new AppError("NETWORK", "No connection. Check the internet and try again.");
+  if (/row-level security|not authorized|unauthorized/i.test(msg) || String(e?.statusCode ?? e?.status) === "403") return new AppError("NOT_ALLOWED", "You are not allowed to do this.");
+  if (/exceeded the maximum allowed size|too large/i.test(msg)) return new AppError("TOO_LARGE", "This file is larger than 5 MB.");
+  if (/mime type/i.test(msg)) return new AppError("WRONG_TYPE", "Use a photo (JPG, PNG or WebP) or a PDF.");
+  return new AppError("REJECTED", fallback);
+};
+
+/** The newest file of each tile for a loan, each with a signed link. */
+export async function listLoanFiles(loanId: string): Promise<LoanFile[]> {
+  const bucket = supabase().storage.from(BUCKET);
+  const { data, error } = await bucket.list(loanId, { limit: 200 });
+  if (error) throw fileError(error, "The photos could not be read. Reload the page.");
+  const latest = latestPerSlot((data ?? []).map((f) => f.name));
+  const slots = Object.keys(latest);
+  if (!slots.length) return [];
+  const signed = await bucket.createSignedUrls(slots.map((s) => `${loanId}/${latest[s]}`), LINK_SECONDS);
+  if (signed.error) throw fileError(signed.error, "The photos could not be read. Reload the page.");
+  return slots.flatMap((slot, i) => {
+    const url = signed.data?.[i]?.signedUrl;
+    return url ? [{ path: `${loanId}/${latest[slot]}`, slot, pdf: isPdf(latest[slot]), url }] : [];
+  });
+}
+
+/** Phone cameras make 5–10 MB photos. A photo is made smaller (longest side 1600 px) before it is sent. */
+async function shrinkPhoto(file: File, type: string): Promise<Blob> {
+  // a file whose type the picker left empty is sent with the type worked out from its name
+  const asIs = file.type === type ? file : new Blob([file], { type });
+  if (type === "application/pdf" || typeof createImageBitmap !== "function") return asIs;
+  try {
+    const img = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    if (scale === 1 && file.size <= 600 * 1024) {
+      img.close();
+      return asIs;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const pen = canvas.getContext("2d")!;
+    // JPEG has no see-through: without this, clear parts of a PNG would come out black
+    pen.fillStyle = "#fff";
+    pen.fillRect(0, 0, canvas.width, canvas.height);
+    pen.drawImage(img, 0, 0, canvas.width, canvas.height);
+    img.close();
+    const small = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/jpeg", 0.82));
+    return small && small.size < file.size ? small : asIs;
+  } catch {
+    return asIs; // a picture this browser cannot draw is sent as it is
+  }
+}
+
+/** Saves a photo or PDF for one tile of a loan. Throws AppError with words for the user. */
+export async function uploadLoanFile(loanId: string, slot: string, file: File): Promise<void> {
+  const problem = fileProblem(file);
+  if (problem) throw new AppError("BAD_FILE", problem);
+  const body = await shrinkPhoto(file, fileType(file));
+  if (body.size > MAX_FILE_BYTES) throw new AppError("TOO_LARGE", "This photo is larger than 5 MB even after making it smaller. Take it again at a lower quality.");
+  let res;
+  try {
+    res = await supabase().storage.from(BUCKET).upload(filePath(loanId, slot, body.type, Date.now()), body, { contentType: body.type, upsert: false });
+  } catch (e) {
+    throw fileError(e as Error, "The file could not be saved. Please try again.");
+  }
+  if (res.error) throw fileError(res.error, "The file could not be saved. Please try again.");
+}
+
+/** Owner: removes files for good. */
+export async function removeLoanFiles(paths: string[]): Promise<void> {
+  if (!paths.length) return;
+  const { data, error } = await supabase().storage.from(BUCKET).remove(paths);
+  if (error) throw fileError(error, "The file could not be removed. Please try again.");
+  // when the policies refuse, storage answers "nothing removed" rather than an error
+  if (!data?.length) throw new AppError("NOT_ALLOWED", "Only the owner can remove a file.");
+}
+
+/** Every file kept for one tile of a loan (an older one stays until the tile is replaced or removed). */
+export async function loanFilePaths(loanId: string, slot: string): Promise<string[]> {
+  const { data, error } = await supabase().storage.from(BUCKET).list(loanId, { limit: 200 });
+  if (error) throw fileError(error, "The photos could not be read. Reload the page.");
+  return (data ?? []).filter((f) => f.name.startsWith(`${slot}-`)).map((f) => `${loanId}/${f.name}`);
 }

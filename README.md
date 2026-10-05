@@ -31,8 +31,10 @@ Private GitHub repository (backups)
   Every change goes through a database function that locks the loan, checks the
   engine's result, and saves all of it or none of it. A payment carries a one-time
   key, so a double tap or a retry never records it twice.
-- **History is kept.** A recorded payment cannot be edited or deleted, only reversed;
-  the reversal and the reason stay on record. Every action is in the activity log.
+- **History is kept.** A recorded payment cannot be edited. The owner can **Delete
+  Payment** on the latest payment of a loan: on screen it is gone and every balance and
+  report goes back, but the database keeps the entry, who deleted it and why. Every
+  action is in the activity log.
 - **Two modes.** With no Supabase settings the app runs on built-in demo data (the
   prototype). With them it is the live app.
 
@@ -100,7 +102,9 @@ runtime, with the production security headers.
 | Add / edit customers | yes | no | yes |
 | Choose which pending months a payment covers | yes | their own customers | no |
 | Waive interest (reason required) | yes | no | no |
-| Reports, activity log, reverse a payment, manage users | yes | no | no |
+| Reports, activity log, delete a payment, manage users | yes | no | no |
+| Security photos and documents | add, view, replace, remove | view | add, view |
+| Change own password (Settings → Security) | yes | yes | yes |
 
 ## Demo data notes
 

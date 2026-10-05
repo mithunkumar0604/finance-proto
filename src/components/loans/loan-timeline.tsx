@@ -18,16 +18,16 @@ export function LoanTimeline({
   payments,
   schedule,
   today,
-  reversibleId,
-  onReverse,
+  deletableId,
+  onDelete,
 }: {
   loan: Loan;
   payments: Payment[];
   schedule?: LoanSchedule | null;
   today: string;
-  /** The one payment that may be reversed (the latest entered), when the viewer is allowed to. */
-  reversibleId?: string;
-  onReverse?: (p: Payment) => void;
+  /** The one payment that may be deleted (the latest entered), when the viewer is allowed to. */
+  deletableId?: string;
+  onDelete?: (p: Payment) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const rows = schedule?.rows ?? [];
@@ -92,9 +92,9 @@ export function LoanTimeline({
             {p.recordedOn > p.date && (
               <p className="mt-1 inline-flex rounded-md bg-indigo-50 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700">Backdated · recorded {dShort(p.recordedOn)}</p>
             )}
-            {onReverse && p.id === reversibleId && (
-              <button type="button" onClick={() => onReverse(p)} className="mt-1 block text-[12px] font-semibold text-rose-700 underline underline-offset-2">
-                Entered by mistake? Reverse
+            {onDelete && p.id === deletableId && (
+              <button type="button" onClick={() => onDelete(p)} className="mt-1 block text-[12px] font-semibold text-rose-700 underline underline-offset-2">
+                Delete Payment
               </button>
             )}
           </Item>

@@ -23,8 +23,10 @@ once a week** until you trust it.
 ## What is not in the backup
 
 - The table structure. It is in `supabase/migrations` in this repository.
-- Photos and documents in Supabase Storage. (Download the `documents` bucket from
-  the Supabase dashboard from time to time if files are being uploaded.)
+- **Photos and documents of security** (the `documents` bucket in Supabase Storage).
+  The app now saves these, so Supabase holds the only copy. Download the bucket from
+  the Supabase dashboard from time to time. The records of what is held (jewel
+  weight, vehicle number, and so on) are in the database and are backed up.
 
 ## The passphrase
 
@@ -100,8 +102,14 @@ works, but Windows tools can silently alter such characters (`setx` and console
 output did during this test). Keep the exact string in a password manager, and when
 it is next changed, prefer letters and digits only.
 
-Until `production` is merged, GitHub does not run the nightly schedule. A backup is
-started by changing `.github/backup-trigger` on `production` and pushing.
+The nightly schedule (02:00 IST) and the "Run workflow" button work from the default
+branch, `main`. Before `production` was merged a backup was started by changing
+`.github/backup-trigger` on `production` and pushing; that still works.
+
+GitHub switches a scheduled workflow off after 60 days with no activity in a public
+repository, and sends an e-mail first. If that e-mail arrives, open Actions → Backup
+and press "Enable workflow". Look at the backup repository once a month: the newest
+file in `daily/` should be from last night.
 
 The steps of the test, for repeating it:
 

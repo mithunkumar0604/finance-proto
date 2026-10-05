@@ -144,6 +144,54 @@ export function PillSelect<T extends string>({
   );
 }
 
+/**
+ * Chooses a photo or PDF. The file is only held here; the screen that owns it saves it
+ * (a loan's photos are sent once the loan itself has been saved).
+ */
+export function PhotoPick({ label, file, onPick, accept, problem }: { label: string; file?: File; onPick: (f: File | undefined) => void; accept: string; problem?: (f: File) => string | null }) {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div>
+      <label
+        className={clsx(
+          "flex h-24 w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-2 text-center text-sm font-medium transition",
+          file ? "border-brand-600 bg-brand-50 text-brand-800" : "border-line text-muted hover:border-brand-200 hover:bg-brand-50/50",
+        )}
+      >
+        <input
+          type="file"
+          accept={accept}
+          className="sr-only"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            const p = problem?.(f) ?? null;
+            setError(p);
+            if (!p) onPick(f);
+          }}
+        />
+        <svg viewBox="0 0 24 24" className="size-6" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+          <circle cx="12" cy="13" r="3.5" />
+        </svg>
+        <span className="max-w-full truncate">{file ? file.name : label}</span>
+        {file && <span className="text-xs font-normal">Tap to change</span>}
+      </label>
+      {file && (
+        <button type="button" onClick={() => onPick(undefined)} className="mt-1 text-xs font-semibold text-rose-700 underline underline-offset-2">
+          Remove
+        </button>
+      )}
+      {error && (
+        <p role="alert" className="mt-1 text-xs font-medium text-rose-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function PhotoPlaceholder({ label = "Add photo", className }: { label?: string; className?: string }) {
   return (
     <button

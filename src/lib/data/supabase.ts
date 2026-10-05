@@ -61,6 +61,17 @@ export function supabase(): SupabaseClient {
 }
 
 /**
+ * A second, throwaway client that remembers nothing. Used only to check a password
+ * (Change Password) without touching this device's sign-in.
+ */
+export function throwawayClient(): SupabaseClient {
+  if (!url || !anonKey) throw new Error("Supabase is not configured");
+  return createClient(url, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: "ledgerpro-password-check" },
+  });
+}
+
+/**
  * People sign in with a mobile number. Supabase Auth needs an e-mail address, so a
  * number becomes "<number>@<login domain>". Anything with an @ is used as typed.
  *

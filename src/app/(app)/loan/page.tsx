@@ -12,9 +12,10 @@ import { SecurityDetails } from "@/components/security/security-details";
 import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Avatar, Card, Chip, EmptyState, Row, SectionHeader, Skeleton, StatusChip } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
-import { DecimalInput, Field, Input, OptionGrid, Textarea } from "@/components/ui/form";
+import { DecimalInput, Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
+import { DEFAULT_DELETE_REASON, deletablePayment, deleteReason } from "@/lib/delete-payment";
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { loanView, permissions } from "@/lib/selectors";
@@ -38,7 +39,7 @@ function LoanDetails() {
   const today = todayISO();
   const perm = permissions(s);
   const [editing, setEditing] = useState(false);
-  const [reversing, setReversing] = useState<Payment | null>(null);
+  const [deleting, setDeleting] = useState<Payment | null>(null);
   const { busy, run } = useSave();
   useLoanHistory(id ? [id] : []);
   const loan = s.loans.find((l) => l.id === id);
@@ -59,11 +60,8 @@ function LoanDetails() {
   const repaid = loan.amount - loan.principalLeft;
   const active = loan.status === "active";
   const schedule = loanSchedule(loan, s.dues.filter((d) => d.loanId === loan.id && !d.cancelled));
-  // LIVE, owner only: the payment entered last can be reversed (the database enforces both).
-  const reversibleId =
-    LIVE && perm.role === "owner"
-      ? v.payments.reduce<Payment | undefined>((a, p) => (p.recordedAt && (!a || p.recordedAt > a.recordedAt!) ? p : a), undefined)?.id
-      : undefined;
+  // LIVE, owner only: the payment entered last can be deleted (the database enforces both).
+  const deletableId = LIVE && perm.role === "owner" ? deletablePayment(v.payments)?.id : undefined;
 
   return (
     <div>
@@ -172,7 +170,8 @@ function LoanDetails() {
 
           {loan.security && (
             <Card className="p-4 md:p-5">
-              <SecurityDetails sec={loan.security} />
+              {/* LIVE: owner and staff add photos, only the owner removes them (the storage policies enforce both) */}
+              <SecurityDetails sec={loan.security} files={LIVE ? { loanId: loan.id, canAdd: perm.role !== "collector", canRemove: perm.role === "owner" } : undefined} />
               {loan.security.status === "held" && !active && (
                 <Button
                   variant="secondary"
@@ -193,49 +192,56 @@ function LoanDetails() {
         <section>
           <SectionHeader title="Payment Timeline" />
           <Card className="p-4 md:p-5">
-            <LoanTimeline loan={loan} payments={v.payments} schedule={schedule} today={today} reversibleId={reversibleId} onReverse={setReversing} />
+            <LoanTimeline loan={loan} payments={v.payments} schedule={schedule} today={today} deletableId={deletableId} onDelete={setDeleting} />
           </Card>
         </section>
       </div>
 
       {editing && <EditLoanSheet loan={loan} onClose={() => setEditing(false)} />}
-      {reversing && <ReversePaymentSheet payment={reversing} onClose={() => setReversing(null)} />}
+      {deleting && <DeletePaymentSheet payment={deleting} onClose={() => setDeleting(null)} />}
     </div>
   );
 }
 
-/** Undo a payment entered by mistake. The payment stays in the records, marked as reversed. */
-function ReversePaymentSheet({ payment, onClose }: { payment: Payment; onClose: () => void }) {
+/**
+ * Delete a payment entered by mistake. To the owner it is gone: balances, pending interest
+ * and reports go back to how they were. The database keeps the entry and who deleted it.
+ */
+function DeletePaymentSheet({ payment, onClose }: { payment: Payment; onClose: () => void }) {
   const [reason, setReason] = useState("");
   const { busy, run } = useSave();
   return (
     <Sheet
       open
       onClose={onClose}
-      title="Reverse Payment"
+      title="Delete this payment?"
       subtitle={`${money(payment.interest + payment.principal + payment.other)} · paid ${dLong(payment.date)}`}
       footer={
-        <Button
-          size="lg"
-          variant="danger"
-          className="w-full"
-          disabled={busy || !reason.trim()}
-          onClick={async () => {
-            if (!(await run(() => actions.reversePayment(payment.id, reason.trim()).then(() => true)))) return;
-            toast("Payment reversed");
-            onClose();
-          }}
-        >
-          {busy ? "Saving…" : "Reverse Payment"}
-        </Button>
+        <div className="grid grid-cols-2 gap-2.5">
+          <Button size="lg" variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="lg"
+            variant="danger"
+            disabled={busy}
+            onClick={async () => {
+              if (!(await run(() => actions.reversePayment(payment.id, deleteReason(reason)).then(() => true)))) return;
+              toast("Payment deleted");
+              onClose();
+            }}
+          >
+            {busy ? "Deleting…" : "Delete Payment"}
+          </Button>
+        </div>
       }
     >
       <div className="space-y-4">
         <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
-          The loan goes back to how it was before this payment. The payment is kept in the records, marked as reversed.
+          The loan goes back to how it was before this payment. If it was entered wrongly, delete it and enter it again.
         </p>
-        <Field label="Why is it being reversed?" required>
-          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Entered on the wrong loan" />
+        <Field label="Reason (optional)">
+          <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={DEFAULT_DELETE_REASON} maxLength={200} />
         </Field>
       </div>
     </Sheet>

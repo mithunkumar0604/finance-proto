@@ -53,11 +53,17 @@ People sign in with a mobile number and a password. Supabase needs an e-mail add
 so the number is stored as `<number>@ledgerpro.invalid`. `.invalid` can never receive
 mail, so nobody can have a password-reset link for a login sent anywhere.
 
-Passwords are therefore reset by an administrator in the Supabase dashboard
+Each person changes their own password in the app (More → Settings → Security →
+Change Password; the current password is asked for). A forgotten password is reset by
+an administrator in the Supabase dashboard
 (Authentication → Users), not by e-mail.
 
 ## Supabase project settings to check once
 
 - Authentication → Sign In / Providers: **Allow new users to sign up = off**.
 - Authentication → Policies: minimum password length 8 or more.
+- Authentication → Policies (or "Password security"): if the project offers **"Require
+  current password when updating"**, turn it on. The app already asks for the current
+  password and sends it; this setting makes the server refuse a change without it, so
+  someone holding an unlocked phone cannot change the password by other means.
 - Consider turning on MFA for the owner's login.

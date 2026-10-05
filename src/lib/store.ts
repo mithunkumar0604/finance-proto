@@ -470,12 +470,37 @@ export const actions = {
     }));
   },
 
-  /** LIVE, owner: undo the latest payment on a loan. The payment stays in the records, marked reversed. */
+  /**
+   * LIVE, owner: "Delete Payment". The latest payment on a loan is taken back: the loan and
+   * its collections return to how they were, and the payment leaves every total. The
+   * database keeps the entry, marked as taken back, with who did it and why.
+   */
   async reversePayment(paymentId: string, reason: string): Promise<void> {
-    if (!LIVE) throw new AppError("NOT_ALLOWED", "Payments can be reversed only in the live app.");
+    if (!LIVE) throw new AppError("NOT_ALLOWED", "Payments can be deleted only in the live app.");
     const { loan_id } = await remote.reversePayment(paymentId, reason);
-    await reloadLoans([loan_id]);
+    // it is deleted; if reading the loan back fails, that must not be reported as "not saved"
+    await reloadLoans([loan_id]).catch(() => {});
     refreshActivity();
+  },
+
+  /**
+   * LIVE: save the photos chosen while a loan was being created. Returns how many could
+   * not be saved (the loan itself is already saved, so this never throws).
+   */
+  async saveLoanPhotos(loanId: string, photos: Record<string, File>): Promise<number> {
+    if (!LIVE) return 0;
+    let failed = 0;
+    for (const [slot, file] of Object.entries(photos)) await remote.uploadLoanFile(loanId, slot, file).catch(() => failed++);
+    return failed;
+  },
+
+  /**
+   * LIVE: change the signed-in person's own password. Throws AppError with words to show.
+   * Resolves to false when the password was changed but other devices could not be signed out.
+   */
+  async changePassword(current: string, next: string): Promise<boolean> {
+    if (!LIVE) throw new AppError("NOT_ALLOWED", "Passwords can be changed only in the live app.");
+    return remote.changePassword(current, next);
   },
 
   /** LIVE, owner: change a team member's role, or switch a login on or off. */

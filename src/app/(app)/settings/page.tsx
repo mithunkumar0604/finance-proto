@@ -1,14 +1,16 @@
 "use client";
 
 import { clsx } from "clsx";
-import { KeyRound, Laptop, Lock, LogOut, RotateCcw, Smartphone, Tablet, Timer } from "lucide-react";
+import { KeyRound, Laptop, Lock, LockKeyhole, LogOut, RotateCcw, Smartphone, Tablet, Timer } from "lucide-react";
 import { useState } from "react";
 import { PinPad } from "@/components/layout/lock-screen";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, Chip, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
+import { MIN_PASSWORD, passwordProblem } from "@/lib/password";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
 
@@ -24,6 +26,7 @@ export default function SettingsPage() {
   const [devices, setDevices] = useState(LIVE ? DEVICES.filter((d) => d.current) : DEVICES);
   const { busy, run } = useSave();
   const [pinStep, setPinStep] = useState<"closed" | "current" | "new">("closed");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -63,6 +66,15 @@ export default function SettingsPage() {
         <Action icon={KeyRound} label="Change PIN" sub="4-digit PIN used to unlock" onClick={() => setPinStep("current")} />
         <Action icon={Lock} label="Lock Application now" onClick={actions.lock} />
       </Card>
+
+      {LIVE && (
+        <>
+          <SectionHeader title="Security" />
+          <Card className="mb-6 overflow-hidden">
+            <Action icon={LockKeyhole} label="Change Password" sub="The password used to sign in" onClick={() => setChangingPassword(true)} />
+          </Card>
+        </>
+      )}
 
       <SectionHeader title="Device Sessions" />
       <Card className="mb-3 divide-y divide-line-2 overflow-hidden">
@@ -120,6 +132,8 @@ export default function SettingsPage() {
         />
       </Card>
 
+      {changingPassword && <ChangePasswordSheet onClose={() => setChangingPassword(false)} />}
+
       <Sheet open={pinStep !== "closed"} onClose={() => setPinStep("closed")}>
         <div className="-mx-5 -mb-4 flex flex-col items-center rounded-t-[28px] bg-brand-900 px-6 pt-8 pb-10 text-white md:rounded-[28px]">
           <h2 className="mb-1 text-xl font-bold">{pinStep === "current" ? "Enter current PIN" : "Enter new PIN"}</h2>
@@ -142,6 +156,64 @@ export default function SettingsPage() {
         </div>
       </Sheet>
     </div>
+  );
+}
+
+function ChangePasswordSheet({ onClose }: { onClose: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const { busy, run } = useSave();
+
+  const submit = async () => {
+    const p = passwordProblem(current, next, confirm);
+    setProblem(p);
+    if (p) return;
+    const done = await run(() => actions.changePassword(current, next).then((othersOut) => ({ othersOut })));
+    if (!done) return;
+    if (done.othersOut) toast("Password changed");
+    else toast("Password changed, but other devices could not be signed out. Use \"Logout all other devices\" below.", "error");
+    onClose();
+  };
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title="Change Password"
+      subtitle="You stay signed in on this device. Other devices are signed out."
+      footer={
+        <Button size="lg" className="w-full" disabled={busy} onClick={submit}>
+          {busy ? "Saving…" : "Change Password"}
+        </Button>
+      }
+    >
+      <form
+        className="space-y-4 pb-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <Field label="Current Password">
+          <Input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </Field>
+        <Field label="New Password" hint={`At least ${MIN_PASSWORD} characters`}>
+          <Input type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+        </Field>
+        <Field label="Confirm Password">
+          <Input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </Field>
+        {problem && (
+          <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+            {problem}
+          </p>
+        )}
+        {/* lets Enter on the keyboard submit */}
+        <button type="submit" className="hidden" />
+      </form>
+    </Sheet>
   );
 }
 

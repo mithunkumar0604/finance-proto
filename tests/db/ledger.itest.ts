@@ -299,10 +299,84 @@ describe("10. corrections keep the history", () => {
     const first = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 });
     const second = await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(1000), other: 0 });
     expect(codeOf(await owner.db.rpc("reverse_payment", { p_payment_id: first.paymentId, p_reason: "x" }))).toBe("NOT_LATEST");
-    expect(codeOf(await owner.db.rpc("reverse_payment", { p_payment_id: second.paymentId, p_reason: " " }))).toBe("REASON_NEEDED");
     expect(codeOf(await collector.db.rpc("reverse_payment", { p_payment_id: second.paymentId, p_reason: "x" }))).toBe("NOT_ALLOWED");
     expect((await owner.db.rpc("reverse_payment", { p_payment_id: second.paymentId, p_reason: "typo" })).error).toBeNull();
     expect(codeOf(await owner.db.rpc("reverse_payment", { p_payment_id: second.paymentId, p_reason: "again" }))).toBe("ALREADY_REVERSED");
+  });
+
+  it("Delete Payment: no reason needed, the money leaves every total, and the record is kept", async () => {
+    const { loanId } = await newLoan();
+    const before = await readLoan(owner.db, loanId);
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: rupees(20000), other: 0 });
+    // what the screens and reports read: payments that were not deleted
+    const live = async () => (await owner.db.from("payments").select("id,interest,principal").eq("loan_id", loanId).is("reversed_at", null)).data!;
+    const lastPaid = async () => (await owner.db.from("loan_last_paid").select("last_interest_paid_on").eq("loan_id", loanId)).data!;
+    expect(await live()).toHaveLength(1);
+    expect(await lastPaid()).toEqual([{ last_interest_paid_on: TODAY }]);
+
+    expect((await owner.db.rpc("reverse_payment", { p_payment_id: paid.paymentId, p_reason: "  " })).error).toBeNull();
+
+    // nothing left to count; principal and the pending interest are back
+    expect(await live()).toHaveLength(0);
+    expect(await lastPaid()).toEqual([]);
+    const after = await readLoan(owner.db, loanId);
+    expect(after.loan.principalLeft).toBe(rupees(100000));
+    expect(after.dues).toEqual(before.dues);
+    // the record is kept, with the default reason, and the owner's log says it in plain words
+    const [p] = await paymentsOf(loanId);
+    expect(p).toMatchObject({ interest: rupees(3000), principal: rupees(20000), reverse_reason: "Entered by mistake", reversed_by: owner.id });
+    expect(p.reversed_at).not.toBeNull();
+    const log = (await owner.db.from("activity").select("text,by_name").eq("loan_id", loanId).order("id", { ascending: false }).limit(1)).data!;
+    expect(log[0].text).toBe(`Deleted payment of ₹23,000 on ${loanId} · Entered by mistake`);
+    expect(log[0].text).not.toMatch(/revers/i);
+    expect(log[0].by_name).toBe("Test Owner");
+  });
+
+  it("Delete Payment, one after another: the latest, then the one before it, back to the start", async () => {
+    const { loanId } = await newLoan();
+    const start = await readLoan(owner.db, loanId);
+    // the coming collection's interest is paid, so the database opens the next collection ...
+    const first = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 });
+    expect(first.error).toBeNull();
+    const afterFirst = await readLoan(owner.db, loanId);
+    expect(afterFirst.dues).toHaveLength(2);
+    // ... and a principal-only payment is then recorded against that next collection
+    const second = await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(10000), other: 0 });
+    expect(second.error).toBeNull();
+    expect((await paymentsOf(loanId))[1].due_id).toBe(afterFirst.dues[1].id);
+
+    expect((await owner.db.rpc("reverse_payment", { p_payment_id: second.paymentId, p_reason: "" })).error).toBeNull();
+    const mid = await readLoan(owner.db, loanId);
+    expect(mid.loan.principalLeft).toBe(rupees(100000));
+    expect(mid.dues).toEqual(afterFirst.dues);
+
+    // the first payment is now the latest: deleting it removes the collection it had opened
+    expect((await owner.db.rpc("reverse_payment", { p_payment_id: first.paymentId, p_reason: "" })).error).toBeNull();
+    const end = await readLoan(owner.db, loanId);
+    expect({ ...end.loan, version: 0 }).toEqual({ ...start.loan, version: 0 });
+    expect(end.dues).toEqual(start.dues);
+
+    // both payments are still on record, deleted; the second no longer points at a collection that is gone
+    const kept = await paymentsOf(loanId);
+    expect(kept.map((p) => p.reversed_at !== null)).toEqual([true, true]);
+    expect(kept.map((p) => [p.interest, p.principal])).toEqual([[rupees(3000), 0], [0, rupees(10000)]]);
+    expect(kept[1].due_id).toBeNull();
+    // and the loan works normally afterwards
+    expect((await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 })).error).toBeNull();
+  });
+
+  it("a deleted payment stays locked: only its link to a removed collection may be cleared", async () => {
+    const { loanId } = await newLoan();
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 });
+    expect((await owner.db.rpc("reverse_payment", { p_payment_id: paid.paymentId, p_reason: "" })).error).toBeNull();
+    expect((await admin.from("payments").update({ interest: 1 }).eq("id", paid.paymentId)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("payments").update({ reverse_reason: "changed later" }).eq("id", paid.paymentId)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("payments").update({ reversed_at: null }).eq("id", paid.paymentId)).error?.message).toMatch(/HISTORY_LOCKED/);
+    const other = (await readLoan(owner.db, (await newLoan()).loanId)).dues[0].id;
+    expect((await admin.from("payments").update({ due_id: other }).eq("id", paid.paymentId)).error?.message).toMatch(/HISTORY_LOCKED/);
+    // a payment that was NOT deleted cannot lose its link either
+    const live = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 });
+    expect((await admin.from("payments").update({ due_id: null }).eq("id", live.paymentId)).error?.message).toMatch(/HISTORY_LOCKED/);
   });
 
   it("recorded payments and the activity log cannot be edited or deleted, even by an administrator", async () => {
@@ -428,7 +502,7 @@ describe("private documents", () => {
 
   it("are stored privately: owner can add and open, others cannot", async () => {
     const mine = await newLoan(rupees(100000), collector.id);
-    const path = `${mine.loanId}/photo-${randomUUID().slice(0, 6)}.png`;
+    const path = `${mine.loanId}/photo-${Date.now()}.png`;
     expect((await owner.db.storage.from("documents").upload(path, png)).error).toBeNull();
 
     // no public URL
@@ -443,17 +517,57 @@ describe("private documents", () => {
     expect((await otherCollector.db.storage.from("documents").createSignedUrl(path, 60)).error).not.toBeNull();
 
     // collectors cannot add files; only the owner can remove them
-    expect((await collector.db.storage.from("documents").upload(`${mine.loanId}/c.png`, png)).error).not.toBeNull();
+    expect((await collector.db.storage.from("documents").upload(`${mine.loanId}/c-1.png`, png)).error).not.toBeNull();
     await staff.db.storage.from("documents").remove([path]);
     expect((await owner.db.storage.from("documents").download(path)).error).toBeNull();
+
+    // staff can add; the loan's people can list its files, another collector sees none
+    expect((await staff.db.storage.from("documents").upload(`${mine.loanId}/side-2.png`, png)).error).toBeNull();
+    expect((await collector.db.storage.from("documents").list(mine.loanId)).data!.map((f) => f.name).sort()).toEqual([path.split("/")[1], "side-2.png"].sort());
+    expect((await otherCollector.db.storage.from("documents").list(mine.loanId)).data).toEqual([]);
+
+    // the owner removes a file: it is gone
+    expect((await owner.db.storage.from("documents").remove([path])).data).toHaveLength(1);
+    expect((await owner.db.storage.from("documents").download(path)).error).not.toBeNull();
   });
 
   it("refuse files that are too large or of the wrong kind", async () => {
     const { loanId } = await newLoan();
     const big = new Blob([new Uint8Array(6 * 1024 * 1024)], { type: "image/png" });
-    expect((await owner.db.storage.from("documents").upload(`${loanId}/big.png`, big)).error).not.toBeNull();
+    expect((await owner.db.storage.from("documents").upload(`${loanId}/big-1.png`, big)).error).not.toBeNull();
     const exe = new Blob(["MZ"], { type: "application/x-msdownload" });
     expect((await owner.db.storage.from("documents").upload(`${loanId}/a.exe`, exe)).error).not.toBeNull();
+    // a program dressed up as a picture is refused too
+    expect((await owner.db.storage.from("documents").upload(`${loanId}/a-1.png`, exe)).error).not.toBeNull();
+  });
+
+  it("files go only under a real loan, with the names the app uses", async () => {
+    const { loanId } = await newLoan();
+    const up = (who: TestUser, path: string) => who.db.storage.from("documents").upload(path, png);
+    for (const who of [owner, staff]) {
+      expect((await up(who, `junk/front-1.png`)).error, "not a loan").not.toBeNull();
+      expect((await up(who, `LP-99999999/front-1.png`)).error, "no such loan").not.toBeNull();
+      expect((await up(who, `front-1.png`)).error, "no folder").not.toBeNull();
+      expect((await up(who, `${loanId}/deep/front-1.png`)).error, "nested").not.toBeNull();
+      expect((await up(who, `${loanId}/Front 1.png`)).error, "odd name").not.toBeNull();
+      expect((await up(who, `${loanId}/front-1.svg`)).error, "wrong ending").not.toBeNull();
+    }
+    expect((await up(staff, `${loanId}/front-1.png`)).error).toBeNull();
+    expect((await admin.storage.from("documents").list(loanId)).data!.map((f) => f.name)).toEqual(["front-1.png"]);
+  });
+
+  it("staff can fill an empty tile but cannot put a newer photo over an existing one; the owner can", async () => {
+    const { loanId } = await newLoan();
+    const up = (who: TestUser, name: string) => who.db.storage.from("documents").upload(`${loanId}/${name}`, png);
+    expect((await up(staff, "front-100.png")).error).toBeNull();
+    // same tile, later time: this would become the photo everyone sees
+    expect((await up(staff, "front-999.png")).error).not.toBeNull();
+    // another tile is fine, also one whose name merely starts the same way
+    expect((await up(staff, "side-100.png")).error).toBeNull();
+    expect((await up(staff, "front2-100.png")).error).toBeNull();
+    // the owner replaces: the new one is added (the app then removes the old one)
+    expect((await up(owner, "front-200.png")).error).toBeNull();
+    expect((await admin.storage.from("documents").list(loanId)).data!.map((f) => f.name).sort()).toEqual(["front-100.png", "front-200.png", "front2-100.png", "side-100.png"]);
   });
 });
 
