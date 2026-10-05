@@ -82,7 +82,7 @@ Project `ledgerpro`, region Singapore (ap-southeast-1). Its URL and keys are in 
 Still to do on the hosted project:
 
 - ~~Turn off "Allow new users to sign up".~~ Done; checked off on 5 October 2026.
-- Create the owner login (`DEPLOYMENT.md` step 6).
+- ~~Create the owner login.~~ Done 5 October 2026.
 - ~~Run the full database test suite against the hosted project.~~ Done 5 October
   2026: 86 of 86 passed against the real project (roles, payments, missed interest,
   waivers, reversal, locked history, direct-write blocking, private files, import).
@@ -107,7 +107,25 @@ static export; project `finance-proto`, connected to the `production` branch).
 - Security: CSP, HSTS, X-Frame-Options, nosniff, Referrer-Policy and Permissions-Policy
   are present; all 135 served files were scanned and contain no secret key, database
   address, token or passphrase (only the publishable key, which is public).
-- The hosted database is still empty and no login exists.
+- Automatic builds from `production` work (the Cloudflare production branch had to be
+  set to `production`).
+
+## First owner account and live authenticated test (5 October 2026)
+
+- The owner login was created with the project's secret key (public sign-up stays
+  off): one Auth user, one profile, role `owner`.
+- A full flow was run on the live site as the owner with labelled test data: customer,
+  a loan given 95 days earlier (three missed months), one month's interest, part of a
+  month, a backdated payment, part of the principal, reports and filters, PDF, logout
+  and login, at 390 / 768 / 1440 px. 50 of 50 checks passed, with no errors, and the
+  hosted database matched the screens figure for figure.
+- The project was then reset, all migrations re-applied, and the owner re-created.
+  **Final state: 1 Auth user, 1 profile (owner), every other table empty, 0 files,
+  counters at their start (C001, LP-1001), sign-up off, 18 of 18 checks.**
+- Not exercised on the live site: staff and collector logins (none exist yet; their
+  restrictions were proven in the 86-test hosted run), and photo upload (not wired).
+- To do in the Supabase dashboard: Authentication → turn on "Leaked password
+  protection" if the plan allows it (Supabase's advisor flags it as off).
 
 ## Needed to go live (only the project owner can do these)
 

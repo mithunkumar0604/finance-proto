@@ -345,7 +345,7 @@ function PaymentForm({
           <p className="num mt-0.5 text-xl font-bold">{money(remaining)}</p>
           {due && (
             <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-              {chosen.length > 1 ? `${chosen.length} periods · oldest ${dRelative(due.dueDate, today).toLowerCase()}` : dRelative(due.dueDate, today)}
+              {chosen.length > 1 ? `${chosen.length} periods · oldest ${dShort(due.dueDate)}` : dRelative(due.dueDate, today)}
               {dueStatus(due, today) !== "pending" && <StatusChip status={dueStatus(due, today)} />}
             </p>
           )}
