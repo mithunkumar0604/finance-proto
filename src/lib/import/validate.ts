@@ -2,6 +2,7 @@
 // Pure: no database, no network. Every problem is reported with its row and column, and
 // a file with any problem is not imported at all. See IMPORT.md.
 
+import { FinanceError, periodInterest } from "../finance/engine";
 import { parseRupees } from "../finance/money";
 import type { Frequency, InterestMethod, InterestStyle, ISODate, LoanType } from "../types";
 
@@ -30,6 +31,8 @@ export const COLUMNS = [
   "status",
   "closed_date",
   "reference",
+  "interest_already_paid",
+  "last_paid_date",
 ] as const;
 export type Column = (typeof COLUMNS)[number];
 
@@ -74,6 +77,10 @@ export interface ImportLoan {
   status: "active" | "closed";
   closedDate?: ISODate;
   reference?: string;
+  /** Interest already received towards the collection on `nextDueDate` (a part-paid period). */
+  interestAlreadyPaid?: number;
+  /** The day the customer last paid, for the "Last Paid" column. Payment history itself is not imported. */
+  lastPaidDate?: ISODate;
   security: { kind: Exclude<(typeof SECURITY)[number], "none">; description?: string; registration?: string } | null;
 }
 
@@ -223,6 +230,25 @@ export function validateImport(text: string, today: ISODate): ImportResult {
       const registration = get("vehicle_registration").toUpperCase().replace(/\s+/g, " ");
       if (kind === "vehicle" && !registration) bad("vehicle_registration", "A vehicle loan needs the vehicle number.");
 
+      // A period that is already part-paid: must be less than that period's interest.
+      const alreadyPaid = money("interest_already_paid", false);
+      if (alreadyPaid) {
+        if (status === "closed") bad("interest_already_paid", "A closed loan has nothing pending, so leave this empty.");
+        else if (amount && principalLeft !== null && style && method && interestValue !== null) {
+          try {
+            const period = periodInterest({ interest: { style, value: interestValue, method }, amount, principalLeft });
+            if (alreadyPaid >= period)
+              bad("interest_already_paid", `Must be less than one period's interest (Rs. ${period / 100}). If that period is fully paid, leave this empty and put the following collection in next_due_date.`);
+          } catch (e) {
+            if (!(e instanceof FinanceError)) throw e;
+          }
+        }
+      }
+      const lastPaidDate = date("last_paid_date", false);
+      if (lastPaidDate && lastPaidDate > today) bad("last_paid_date", "The last payment date cannot be in the future.");
+      else if (lastPaidDate && startDate && lastPaidDate < startDate) bad("last_paid_date", "The last payment date is before the loan was given.");
+      else if (lastPaidDate && closedDate && lastPaidDate > closedDate) bad("last_paid_date", "The last payment date is after the loan was closed.");
+
       if (errors.length === before)
         loan = {
           row,
@@ -238,6 +264,8 @@ export function validateImport(text: string, today: ISODate): ImportResult {
           status: status!,
           ...(status === "closed" ? { closedDate: closedDate! } : {}),
           ...(opt(get("reference")) ? { reference: opt(get("reference")) } : {}),
+          ...(alreadyPaid ? { interestAlreadyPaid: alreadyPaid } : {}),
+          ...(lastPaidDate ? { lastPaidDate } : {}),
           security: kind && kind !== "none" ? { kind, ...(opt(get("security_description")) ? { description: opt(get("security_description")) } : {}), ...(registration ? { registration } : {}) } : null,
         };
     }

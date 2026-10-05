@@ -183,3 +183,53 @@ describe("who can import, and taking an import back", () => {
     expect((await admin.from("loans").delete().eq("id", loan.id)).error?.message).toMatch(/HISTORY_LOCKED/);
   });
 });
+
+describe("a part-paid month and the last payment date come in with the import", () => {
+  it("the part-paid month shows only what is left, and the rest can be collected", async () => {
+    const { text, result } = sample(tag());
+    const batch = batchId(text);
+    expect((await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) })).error).toBeNull();
+    const c = (await admin.from("customers").select("id").eq("import_batch", batch).eq("name", "Sample Bala").single()).data!;
+    const loan = (await loansOf(batch)).find((l) => l.customer_id === c.id)!;
+    const before = await readLoan(owner.db, loan.id);
+    // 1,00,000 left at 3% = 3,000 for the month; the file says 1,000 of it was already paid on 20 Sep
+    expect(before.dues[0]).toMatchObject({ dueDate: "2026-10-15", interestAmount: rupees(3000), interestPaid: rupees(1000), paid: rupees(1000), lastPaidDate: "2026-09-20" });
+    // what was paid before the import is not recorded as money received in the app
+    expect((await admin.from("payments").select("id").eq("loan_id", loan.id)).data).toHaveLength(0);
+
+    // only the 2,000 still pending can be collected for that month
+    await expect(pay(owner.db, loan.id, { date: TODAY, interest: rupees(2001), principal: 0, other: 0, allocations: [{ dueId: before.dues[0].id, amount: rupees(2001) }] })).rejects.toThrow(/more than the interest pending/);
+    expect((await pay(owner.db, loan.id, { date: TODAY, interest: rupees(2000), principal: 0, other: 0, allocations: [{ dueId: before.dues[0].id, amount: rupees(2000) }] })).error).toBeNull();
+    const after = await readLoan(owner.db, loan.id);
+    expect(after.dues[0]).toMatchObject({ interestPaid: rupees(3000), paid: rupees(3000) });
+  });
+
+  it("'Last Paid' is the imported date until a payment is recorded in the app, then the newer one", async () => {
+    const { text, result } = sample(tag());
+    const batch = batchId(text);
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    const loans = await loansOf(batch);
+    const lastPaid = async (id: string) => (await owner.db.from("loan_last_paid").select("last_interest_paid_on").eq("loan_id", id).maybeSingle()).data?.last_interest_paid_on ?? null;
+
+    const ganesh = loans.find((l) => l.amount === rupees(300000) && l.type === "monthly")!;
+    expect(ganesh.imported_last_paid_on).toBe("2026-06-30");
+    expect(await lastPaid(ganesh.id)).toBe("2026-06-30");
+    const { dues } = await readLoan(owner.db, ganesh.id);
+    expect((await pay(owner.db, ganesh.id, { date: TODAY, interest: dues[0].interestAmount, principal: 0, other: 0 })).error).toBeNull();
+    expect(await lastPaid(ganesh.id)).toBe(TODAY);
+
+    // a loan the file gave no date for has no "Last Paid" yet
+    const mani = loans.find((l) => l.amount === rupees(120000) && l.type === "monthly")!;
+    expect(await lastPaid(mani.id)).toBeNull();
+  });
+
+  it("the database refuses 'already paid' that is a whole period or more", async () => {
+    const { result } = sample(tag());
+    const batch = randomUUID();
+    const payload = importPayload(result);
+    payload.p_loans[2] = { ...payload.p_loans[2], interest_already_paid: rupees(3000) };
+    const res = await admin.rpc("import_book", { p_batch: batch, p_file: "bad.csv", ...payload });
+    expect(codeOf(res)).toBe("IMPORT");
+    expect(await loansOf(batch)).toHaveLength(0);
+  });
+});

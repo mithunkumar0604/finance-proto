@@ -60,6 +60,8 @@ export function importPayload(result: ImportResult) {
         status: l.status,
         closed_date: l.closedDate ?? null,
         reference: l.reference ?? null,
+        interest_already_paid: l.interestAlreadyPaid ?? 0,
+        last_paid_date: l.lastPaidDate ?? null,
         collateral: sec ? collateralToRow(sec) : null,
       };
     }),

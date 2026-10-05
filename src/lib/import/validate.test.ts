@@ -150,3 +150,53 @@ describe("the sample file that ships with the template", () => {
     expect(r.loans.some((l) => l.principalPerDue > 0)).toBe(true);
   });
 });
+
+describe("a month that is already part-paid, and the last payment date", () => {
+  it("accepts interest already paid towards the next collection", () => {
+    // 1,20,000 left at 3% = 3,600 for the period; 1,500 of it is already paid
+    const r = check(row({ interest_already_paid: "1,500", last_paid_date: "20-10-2026".replace("20-10", "01-10") }));
+    expect(r.errors).toEqual([]);
+    expect(r.loans[0]).toMatchObject({ interestAlreadyPaid: 150000, lastPaidDate: "2026-10-01" });
+  });
+  it("leaves both out when the columns are empty", () => {
+    const l = check(row()).loans[0];
+    expect(l).not.toHaveProperty("interestAlreadyPaid");
+    expect(l).not.toHaveProperty("lastPaidDate");
+  });
+  it("refuses an amount that is the whole period's interest or more (move the next collection date instead)", () => {
+    expect(messages(check(row({ interest_already_paid: "3,600" })))).toEqual(["2:interest_already_paid"]);
+    expect(messages(check(row({ interest_already_paid: "5,000" })))).toEqual(["2:interest_already_paid"]);
+    expect(check(row({ interest_already_paid: "3,599" })).errors).toEqual([]);
+  });
+  it("works the period's interest out the same way the app does (flat, fixed amount)", () => {
+    // flat 3% of the 2,00,000 first given = 6,000 a period
+    expect(check(row({ interest_method: "fixed", interest_already_paid: "5,999" })).errors).toEqual([]);
+    expect(messages(check(row({ interest_method: "fixed", interest_already_paid: "6,000" })))).toEqual(["2:interest_already_paid"]);
+    expect(messages(check(row({ interest_style: "fixed", interest_value: "2,500", interest_method: "fixed", interest_already_paid: "2,500" })))).toEqual(["2:interest_already_paid"]);
+  });
+  it("refuses it on a closed loan", () => {
+    expect(messages(check(row({ status: "closed", principal_left: "0", closed_date: "01-09-2026", next_due_date: "", interest_already_paid: "500" })))).toContain("2:interest_already_paid");
+  });
+  it("checks the last payment date", () => {
+    expect(messages(check(row({ last_paid_date: "32-01-2026" })))).toEqual(["2:last_paid_date"]);
+    expect(messages(check(row({ last_paid_date: "01-01-2027" })))).toEqual(["2:last_paid_date"]); // in the future
+    expect(messages(check(row({ last_paid_date: "01-01-2026" })))).toEqual(["2:last_paid_date"]); // before the loan was given
+    expect(messages(check(row({ status: "closed", principal_left: "0", closed_date: "01-09-2026", next_due_date: "", last_paid_date: "15-09-2026" })))).toEqual(["2:last_paid_date"]); // after it closed
+  });
+});
+
+describe("the sample covers what the client was asked to include", () => {
+  const r = validateImport(readFileSync("import/sample-20.csv", "utf8"), TODAY);
+  it("has a part-paid month and last payment dates", () => {
+    expect(r.loans.some((l) => (l.interestAlreadyPaid ?? 0) > 0)).toBe(true);
+    expect(r.loans.filter((l) => l.lastPaidDate).length).toBeGreaterThanOrEqual(5);
+  });
+  it("has a customer with more than one loan, a vehicle loan, a jewel loan and short-term loans", () => {
+    const perCustomer = new Map<string, number>();
+    for (const l of r.loans) perCustomer.set(l.customerKey, (perCustomer.get(l.customerKey) ?? 0) + 1);
+    expect([...perCustomer.values()].some((n) => n > 1)).toBe(true);
+    expect(r.loans.some((l) => l.security?.kind === "vehicle" && l.security.registration)).toBe(true);
+    expect(r.loans.some((l) => l.security?.kind === "jewel")).toBe(true);
+    expect(r.loans.some((l) => l.type === "15day" || l.type === "30day")).toBe(true);
+  });
+});

@@ -7,6 +7,8 @@ the 20 sample records in `import/sample-20.csv`.
 ## The file
 
 Fill in `import/template.csv` in Excel or Google Sheets and save it as **CSV**.
+`import/HOW-TO-FILL.md` is the plain-language guide to give to the client, and
+`import/sample-20.csv` shows one made-up row for each kind of loan.
 One row is one loan. A customer with two loans has two rows with the same phone
 number. A row with no loan amount adds the customer only.
 
@@ -29,10 +31,19 @@ number. A row with no loan amount adds the customer only.
 | `status` | `active` or `closed` |
 | `closed_date` | Required for a closed loan |
 | `reference` | Optional note on the loan |
+| `interest_already_paid` | Optional. Rupees already paid towards the collection on `next_due_date` (a part-paid period). Must be less than one period's interest |
+| `last_paid_date` | Optional. The day the customer last paid, shown as "Last Paid" until a payment is recorded in the app |
 
 What is **not** imported: the history of past payments. An imported loan starts from
-its balance today ("Principal left") and its next collection. "Total collected"
-on an imported loan counts from the import onwards.
+its balance today ("Principal left"), what is pending, and its last payment date.
+"Total collected" on an imported loan counts from the import onwards, and its
+payment timeline starts empty.
+
+How missed periods are worked out: `next_due_date` is the oldest unpaid collection.
+Every period from that date up to today becomes its own pending collection, each
+for one period's interest **on the principal left today**. If the customer returned
+principal part-way through the missed stretch, the client's own figure for the
+older months may be higher than the app's; check this with the client on the sample.
 
 ## Steps
 
@@ -45,6 +56,9 @@ npm run import -- book.csv
 # 3. Import. Needs the project URL and the secret key, on an administrator's computer only.
 IMPORT_SUPABASE_URL=https://xxxx.supabase.co IMPORT_SUPABASE_SECRET_KEY=sb_secret_... npm run import -- book.csv --apply
 ```
+
+Real client files hold personal data. Keep them **outside this repository** (it is
+public) and never commit them.
 
 Keep the **batch id** it prints.
 
