@@ -180,6 +180,15 @@ static export; project `finance-proto`, connected to the `production` branch).
   delete, re-enter, password change, phone / tablet / desktop widths); everything was
   then removed. **The hosted project is again: 1 login, 1 profile (the owner), every
   other table empty, no files, 12 migrations, 18 of 18 checks.**
+- **Merge and backup (5 October 2026):** `main` was fast-forwarded to `production`; the two
+  are identical. On `main`, CI and the release checks (including the 26 browser tests on
+  GitHub) pass. A backup started by hand from `main` succeeded and is in the private
+  backup repository; the nightly run (02:00 IST) is active.
+- **Cloudflare shows a failed build for every push to `main`.** Cloudflare publishes
+  `production` (that build succeeds and is what is live); it also tries a preview build
+  of other branches, which this project does not support. To stop the red mark: Cloudflare
+  dashboard → the `finance-proto` Worker → Settings → Build → Branch control → switch
+  off builds for non-production branches. The live site is not affected either way.
 - **To do by hand in the Supabase dashboard:** turn on "Require current password when
   updating" if offered (see `ENVIRONMENT.md`), and "Leaked password protection".
 
