@@ -127,6 +127,23 @@ static export; project `finance-proto`, connected to the `production` branch).
 - To do in the Supabase dashboard: Authentication → turn on "Leaked password
   protection" if the plan allows it (Supabase's advisor flags it as off).
 
+## Client onboarding (in progress, 5 October 2026)
+
+- A backup of the clean, owner-only state is in the backup repository (run of
+  10:38 UTC; fingerprint matched; it holds 1 login, 1 profile, nothing else).
+- The client fills `import/template.csv` using `import/HOW-TO-FILL.md`
+  (`import/sample-20.csv` shows one made-up row per kind of loan). **First only
+  10–20 real loans.**
+- The importer checks every row, refuses the whole file on any error, saves all or
+  nothing, saves the same file once, and can be taken back before any payment. It
+  now also carries a part-paid month and the last payment date. Tested locally (15
+  import tests) and, before those two columns were added, against the hosted project.
+- The hosted project has the matching migration (8 of 8), still with no client data.
+- **Not done yet:** the real sample import (waiting for the client's sheet), the
+  client's check of 3–5 customers, the full import, and merging into `main`.
+- Real client files are personal data: keep them outside this (public) repository.
+  Any CSV under `import/` other than the template and the sample is ignored by git.
+
 ## Needed to go live (only the project owner can do these)
 
 1. ~~Create the Supabase project~~ (done). Create the Cloudflare account/project and
