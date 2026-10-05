@@ -44,7 +44,7 @@ next-env.d.ts
 # real client import files must never be committed (only the template and the made-up sample are)
 /import/*.csv
 !/import/template.csv
-!/import/sample-20.csv
+!/import/sample-22.csv
 /import/*.xlsx
 
 # test output

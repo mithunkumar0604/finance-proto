@@ -102,7 +102,7 @@ function CustomerProfile() {
             <SummaryTile label="Total Given" value={v.totalGiven} />
             <SummaryTile label="Principal Remaining" value={v.principalLeft} strong />
             <SummaryTile label="Current Due" value={v.currentDue} tone={v.currentDue ? (v.worst === "overdue" ? "text-rose-700" : "text-amber-700") : undefined} />
-            <SummaryTile label="Total Collected" value={v.collected} tone="text-emerald-700" />
+            <SummaryTile label={v.loans.some((x) => x.loan.opening) ? "Collected in LedgerPro" : "Total Collected"} value={v.collected} tone="text-emerald-700" />
           </div>
         </div>
 

@@ -39,6 +39,18 @@ All amounts are whole paise. Nothing is stored or added as a decimal number.
 - Waiving: the owner only. Full Settlement → "− Waive", or More options → Adjustment →
   "− Waive interest". The reason goes in Notes and is required.
 
+## Loans brought in from the old book (confirmed 5 October 2026)
+
+- An imported loan is an **opening position**: principal left, what is pending, and
+  the oldest unpaid collection, as they stand on the day of import. From that day
+  LedgerPro is the record.
+- **Old payments are not recreated**, and no payment is invented to make a total look
+  complete. The app says "Collected since (import day)" for these loans.
+- A closed loan comes in as a closed record with its date; nothing to collect.
+- **A customer's identity is its own LedgerPro id.** The phone is contact information:
+  it may be empty or shared. Two people sharing a phone are two customers.
+- Dates in an import are day first with a four-digit year (`04/05/2026` = 4 May).
+
 ## Assumptions — NOT yet confirmed by the client
 
 | # | Rule | Where |

@@ -41,6 +41,12 @@ describe("loan rows", () => {
     expect(loan.closedDate).toBeUndefined();
   });
 
+  it("carry the opening position of a loan brought in from the old book", () => {
+    const loan = loanFromRow({ ...loanRow, opened_on: "2026-10-05", opening_principal: 12000000 }, undefined);
+    expect(loan.opening).toEqual({ on: "2026-10-05", principalLeft: 12000000 });
+    expect(loanFromRow(loanRow, undefined)).not.toHaveProperty("opening");
+  });
+
   it("have no security when none is held", () => {
     expect(loanFromRow(loanRow, undefined).security).toBeNull();
   });

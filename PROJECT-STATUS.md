@@ -132,8 +132,13 @@ static export; project `finance-proto`, connected to the `production` branch).
 - A backup of the clean, owner-only state is in the backup repository (run of
   10:38 UTC; fingerprint matched; it holds 1 login, 1 profile, nothing else).
 - The client fills `import/template.csv` using `import/HOW-TO-FILL.md`
-  (`import/sample-20.csv` shows one made-up row per kind of loan). **First only
+  (`import/sample-22.csv` shows one made-up row per kind of loan). **First only
   10–20 real loans.**
+- Imported loans are **opening positions**: old payments are not recreated, and the
+  app labels their totals "Collected since (import day)". Customers are identified by
+  their own LedgerPro id, never by phone alone (shared and missing phones are
+  allowed). Dates are day first. The check reports warnings before import and stops
+  on anything that could change a balance. Details: `IMPORT.md`.
 - The importer checks every row, refuses the whole file on any error, saves all or
   nothing, saves the same file once, and can be taken back before any payment. It
   now also carries a part-paid month and the last payment date. Tested locally (15

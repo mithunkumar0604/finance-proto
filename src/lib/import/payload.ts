@@ -35,6 +35,7 @@ export function importPayload(result: ImportResult) {
   return {
     p_customers: result.customers.map((c) => ({
       key: c.key,
+      ref: c.ref ?? null,
       name: c.name,
       phone: c.phone,
       alt_phone: c.altPhone ?? null,
@@ -47,6 +48,7 @@ export function importPayload(result: ImportResult) {
       const sec = security(l, byKey.get(l.customerKey)!);
       return {
         customer_key: l.customerKey,
+        ref: l.ref ?? null,
         type: l.type,
         amount: l.amount,
         principal_left: l.principalLeft,

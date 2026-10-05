@@ -16,7 +16,7 @@ import { DecimalInput, Field, Input, OptionGrid, Textarea } from "@/components/u
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
-import { dLong, dRelative, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
+import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { loanView, permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
@@ -159,8 +159,9 @@ function LoanDetails() {
               )}
               <Row label="Security" value={loan.security ? "Held — see below" : "None"} />
               {loan.reference && <Row label="Reference" value={loan.reference} />}
-              <Row label="Total Collected" value={money(v.collected)} />
-              <Row label="Interest Collected" value={money(v.interestCollected)} />
+              {/* A loan brought in from the old book: LedgerPro only knows what was collected since that day. */}
+              <Row label={loan.opening ? `Collected since ${dShort(loan.opening.on)}` : "Total Collected"} value={money(v.collected)} />
+              <Row label={loan.opening ? `Interest since ${dShort(loan.opening.on)}` : "Interest Collected"} value={money(v.interestCollected)} />
             </div>
             {!LIVE && (
               <p className="flex items-center gap-1.5 py-3 text-xs text-faint">

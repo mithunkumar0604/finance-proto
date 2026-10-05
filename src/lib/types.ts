@@ -90,6 +90,11 @@ export interface Loan {
   status: "active" | "closed";
   closedDate?: ISODate;
   security: Security | null;
+  /**
+   * Set on a loan brought in from the old book: the day it was brought in and the principal
+   * owed that day. Payments before that day are not in LedgerPro, so totals count from then.
+   */
+  opening?: { on: ISODate; principalLeft: number };
   /** LIVE: the day interest was last received, from the database (recent payments only are held in memory). */
   lastInterestPaidOn?: ISODate;
   /** Database row version, sent back with every change so two people cannot overwrite each other. */

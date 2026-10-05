@@ -1,4 +1,4 @@
-// Importing existing customers and loans: the 20-row sample, against the real database.
+// Importing existing customers and loans: the made-up 22-row sample, against the real database.
 
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -13,7 +13,9 @@ let TODAY: string;
 
 /** The sample, with phone numbers made unique for this test run so runs do not collide. */
 function sample(tag: string) {
-  const text = readFileSync("import/sample-20.csv", "utf8").replace(/90000000(\d\d)/g, (_, n) => `9${tag}${n}`);
+  const text = readFileSync("import/sample-22.csv", "utf8")
+    .replace(/90000000(\d\d)/g, (_, n) => `9${tag}${n}`)
+    .replace(/\bS([CL])(\d\d)\b/g, (_, k, n) => `S${k}${tag}${n}`);
   return { text, result: validateImport(text, TODAY) };
 }
 const tag = () => String(Math.floor(1000000 + Math.random() * 8999999));
@@ -29,12 +31,12 @@ describe("importing the sample file", () => {
     const { text, result } = sample(tag());
     expect(result.errors).toEqual([]);
     const batch = batchId(text);
-    const res = await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    const res = await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     expect(res.error).toBeNull();
-    expect(res.data).toMatchObject({ duplicate: false, customers: result.customers.length, loans: 20 });
+    expect(res.data).toMatchObject({ duplicate: false, customers: result.customers.length, loans: 22 });
 
     const loans = await loansOf(batch);
-    expect(loans).toHaveLength(20);
+    expect(loans).toHaveLength(22);
     expect(loans.reduce((a, l) => a + l.principal_left, 0)).toBe(result.loans.reduce((a, l) => a + l.principalLeft, 0));
     expect(loans.reduce((a, l) => a + l.amount, 0)).toBe(result.loans.reduce((a, l) => a + l.amount, 0));
     expect(loans.filter((l) => l.status === "closed")).toHaveLength(2);
@@ -49,7 +51,7 @@ describe("importing the sample file", () => {
   it("starts each running loan from its next collection, and brings loans that are behind up to today", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const loans = await loansOf(batch);
     const byName = async (name: string) => {
       const c = (await admin.from("customers").select("id").eq("import_batch", batch).eq("name", name).single()).data!;
@@ -85,7 +87,7 @@ describe("importing the sample file", () => {
   it("an imported loan then works like any other: take a payment on it", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const loan = (await loansOf(batch)).find((l) => l.amount === rupees(500000) && l.type === "monthly")!;
     const res = await pay(owner.db, loan.id, { date: TODAY, interest: rupees(10000), principal: 0, other: 0 });
     expect(res.error).toBeNull();
@@ -95,29 +97,32 @@ describe("importing the sample file", () => {
   it("importing the same file twice saves it once", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    const args = { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) };
+    const args = { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) };
     await admin.rpc("import_book", args);
     const again = await admin.rpc("import_book", args);
     expect(again.data).toEqual({ duplicate: true });
-    expect(await loansOf(batch)).toHaveLength(20);
+    expect(await loansOf(batch)).toHaveLength(22);
     expect(batchId(text + "\n")).toBe(batch); // a trailing blank line does not make it a "different" file
   });
 
-  it("a customer already in the system (same phone) is reused, not duplicated", async () => {
+  it("a customer already in the system (same name and phone) is reused, not duplicated", async () => {
     const t = tag();
     const { text, result } = sample(t);
     const phone = `9${t}01`;
     await admin.from("customers").insert({ name: "Sample Arun", phone, area: "Erode" });
     const batch = batchId(text);
-    const res = await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    const res = await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     expect(res.data.customers).toBe(result.customers.length - 1);
-    expect((await admin.from("customers").select("id").eq("phone", phone)).data).toHaveLength(1);
+    // that phone now belongs to two customers: the one already there, and his brother from the file
+    const sharing = (await admin.from("customers").select("name,import_ref").eq("phone", phone).order("name")).data!;
+    expect(sharing.map((c) => c.name)).toEqual(["Sample Arun", "Sample Arun's Brother"]);
+    expect(sharing[0].import_ref).toBe(`SC${t}01`); // the existing customer took the sheet's number
   });
 });
 
 describe("a bad file changes nothing", () => {
   it("the checker refuses it and names every bad row; it cannot be turned into an import", () => {
-    const text = readFileSync("import/sample-20.csv", "utf8").replace("Sample Chitra,9000000003", "Sample Chitra,12345").replace('"3,00,000","3,00,000",30-04-2026', '"3,00,000","9,00,000",30-04-2026');
+    const text = readFileSync("import/sample-22.csv", "utf8").replace("Sample Chitra,9000000003", "Sample Chitra,12345").replace('"3,00,000","3,00,000",30/04/2026', '"3,00,000","9,00,000",30/04/2026');
     const result = validateImport(text, TODAY);
     expect(result.ok).toBe(false);
     expect(result.errors.map((e) => `${e.row}:${e.column}`)).toEqual(["5:phone", "9:principal_left"]);
@@ -153,11 +158,11 @@ describe("who can import, and taking an import back", () => {
   it("a wrong import can be taken back completely, before anything is collected", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const ids = (await loansOf(batch)).map((l) => l.id);
     const res = await admin.rpc("undo_import", { p_batch: batch });
     expect(res.error).toBeNull();
-    expect(res.data).toEqual({ customers: result.customers.length, loans: 20 });
+    expect(res.data).toEqual({ customers: result.customers.length, loans: 22 });
     expect(await loansOf(batch)).toHaveLength(0);
     expect((await admin.from("dues").select("id").in("loan_id", ids)).data).toHaveLength(0);
     expect((await admin.from("customers").select("id").eq("import_batch", batch)).data).toHaveLength(0);
@@ -167,18 +172,18 @@ describe("who can import, and taking an import back", () => {
   it("but not after a payment has been recorded on it", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const loan = (await loansOf(batch)).find((l) => l.status === "active")!;
     const { dues } = await readLoan(owner.db, loan.id);
     expect((await pay(owner.db, loan.id, { date: TODAY, interest: dues[0].interestAmount, principal: 0, other: 0 })).error).toBeNull();
     expect(codeOf(await admin.rpc("undo_import", { p_batch: batch }))).toBe("IMPORT");
-    expect(await loansOf(batch)).toHaveLength(20);
+    expect(await loansOf(batch)).toHaveLength(22);
   });
 
   it("an ordinary loan still cannot be deleted", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const loan = (await loansOf(batch))[0];
     expect((await admin.from("loans").delete().eq("id", loan.id)).error?.message).toMatch(/HISTORY_LOCKED/);
   });
@@ -188,7 +193,7 @@ describe("a part-paid month and the last payment date come in with the import", 
   it("the part-paid month shows only what is left, and the rest can be collected", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    expect((await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) })).error).toBeNull();
+    expect((await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) })).error).toBeNull();
     const c = (await admin.from("customers").select("id").eq("import_batch", batch).eq("name", "Sample Bala").single()).data!;
     const loan = (await loansOf(batch)).find((l) => l.customer_id === c.id)!;
     const before = await readLoan(owner.db, loan.id);
@@ -207,7 +212,7 @@ describe("a part-paid month and the last payment date come in with the import", 
   it("'Last Paid' is the imported date until a payment is recorded in the app, then the newer one", async () => {
     const { text, result } = sample(tag());
     const batch = batchId(text);
-    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-20.csv", ...importPayload(result) });
+    await admin.rpc("import_book", { p_batch: batch, p_file: "sample-22.csv", ...importPayload(result) });
     const loans = await loansOf(batch);
     const lastPaid = async (id: string) => (await owner.db.from("loan_last_paid").select("last_interest_paid_on").eq("loan_id", id).maybeSingle()).data?.last_interest_paid_on ?? null;
 
@@ -231,5 +236,84 @@ describe("a part-paid month and the last payment date come in with the import", 
     const res = await admin.rpc("import_book", { p_batch: batch, p_file: "bad.csv", ...payload });
     expect(codeOf(res)).toBe("IMPORT");
     expect(await loansOf(batch)).toHaveLength(0);
+  });
+});
+
+describe("who is who, and opening positions", () => {
+  const sheet = (t: string, rows: Record<string, string>[]) => {
+    const base: Record<string, string> = { area: "Test", loan_type: "monthly", loan_amount: "1,00,000", principal_left: "1,00,000", start_date: "01/06/2026", interest_style: "percent", interest_value: "3", interest_method: "reducing", frequency: "monthly", status: "active", next_due_date: "01/12/2026", security_type: "none" };
+    const lines = rows.map((r) => COLUMNS.map((c) => ({ ...base, ...r })[c] ?? "").map((v) => (/[",]/.test(v) ? `"${v}"` : v)).join(","));
+    const text = [COLUMNS.join(","), ...lines].join("\n") + `\n`;
+    return { text, result: validateImport(text, TODAY), t };
+  };
+  const run = async (s: ReturnType<typeof sheet>) => admin.rpc("import_book", { p_batch: batchId(s.text), p_file: "pilot.csv", ...importPayload(s.result) });
+
+  it("two people sharing one phone, and a person with no phone, are each their own customer", async () => {
+    const t = tag();
+    const s = sheet(t, [
+      { customer_name: `Father ${t}`, phone: `9${t}71`, loan_ref: `A${t}1` },
+      { customer_name: `Son ${t}`, phone: `9${t}71`, loan_ref: `A${t}2` },
+      { customer_name: `NoPhone ${t}`, phone: "", loan_ref: `A${t}3` },
+    ]);
+    expect(s.result.errors).toEqual([]);
+    const res = await run(s);
+    expect(res.error).toBeNull();
+    expect(res.data).toMatchObject({ customers: 3, loans: 3 });
+    const made = (await admin.from("customers").select("id,name,phone").eq("import_batch", batchId(s.text)).order("name")).data!;
+    expect(made.map((c) => [c.name, c.phone])).toEqual([[`Father ${t}`, `9${t}71`], [`NoPhone ${t}`, ""], [`Son ${t}`, `9${t}71`]]);
+    expect(new Set(made.map((c) => c.id)).size).toBe(3);
+    // each still found by phone or name through the app's own access rules
+    expect((await owner.db.from("customers").select("id").eq("phone", `9${t}71`)).data).toHaveLength(2);
+    expect((await owner.db.from("customers").select("id").ilike("name", `%NoPhone ${t}%`)).data).toHaveLength(1);
+  });
+
+  it("a later file with the same customer number adds a loan to the same customer, even if the phone has changed", async () => {
+    const t = tag();
+    expect((await run(sheet(t, [{ customer_ref: `K${t}`, customer_name: `Kumar ${t}`, phone: `9${t}81`, loan_ref: `B${t}1` }]))).error).toBeNull();
+    const second = sheet(t, [{ customer_ref: `K${t}`, customer_name: `Kumar ${t}`, phone: `9${t}82`, loan_ref: `B${t}2`, loan_type: "weekly", frequency: "weekly", interest_style: "fixed", interest_value: "500", interest_method: "fixed", next_due_date: "08/06/2026" }]);
+    const res = await run(second);
+    expect(res.error).toBeNull();
+    expect(res.data).toMatchObject({ customers: 0, loans: 1 });
+    const c = (await admin.from("customers").select("id,phone").ilike("import_ref", `K${t}`)).data!;
+    expect(c).toHaveLength(1);
+    expect(c[0].phone).toBe(`9${t}81`); // an existing customer's details are never overwritten by an import
+    expect((await admin.from("loans").select("id").eq("customer_id", c[0].id)).data).toHaveLength(2);
+  });
+
+  it("the same loan number in a second file is refused, and nothing from that file is saved", async () => {
+    const t = tag();
+    expect((await run(sheet(t, [{ customer_name: `Once ${t}`, phone: `9${t}91`, loan_ref: `C${t}1` }]))).error).toBeNull();
+    const again = sheet(t, [
+      { customer_name: `New ${t}`, phone: `9${t}92`, loan_ref: `C${t}2` },
+      { customer_name: `Once ${t}`, phone: `9${t}91`, loan_ref: `c${t}1` },
+    ]);
+    const res = await run(again);
+    expect(codeOf(res)).toBe("IMPORT");
+    expect(res.error!.message).toMatch(/already in LedgerPro/);
+    expect((await admin.from("customers").select("id").eq("phone", `9${t}92`)).data).toHaveLength(0);
+    expect((await admin.from("loans").select("id").ilike("import_ref", `C${t}1`)).data).toHaveLength(1);
+  });
+
+  it("an imported loan records the day it was brought in and the principal owed then", async () => {
+    const t = tag();
+    const s = sheet(t, [
+      { customer_name: `Open ${t}`, phone: `9${t}61`, loan_ref: `D${t}1`, loan_amount: "2,00,000", principal_left: "1,20,000", next_due_date: "01/08/2026", last_paid_date: "30/06/2026" },
+      { customer_name: `Shut ${t}`, phone: `9${t}62`, loan_ref: `D${t}2`, principal_left: "0", status: "closed", closed_date: "01/09/2026", next_due_date: "", security_type: "jewel", security_description: "Gold ring" },
+    ]);
+    expect(s.result.errors).toEqual([]);
+    expect((await run(s)).error).toBeNull();
+    const [open, shut] = (await admin.from("loans").select("*").eq("import_batch", batchId(s.text)).order("import_ref")).data!;
+    expect(open).toMatchObject({ amount: rupees(200000), principal_left: rupees(120000), opening_principal: rupees(120000), opened_on: TODAY, status: "active", imported_last_paid_on: "2026-06-30" });
+    // nothing is invented: no payments, no allocations
+    expect((await admin.from("payments").select("id").in("loan_id", [open.id, shut.id])).data).toHaveLength(0);
+    // what the sheet said would be pending is what the database now holds as pending
+    const pending = (await readLoan(owner.db, open.id)).dues.filter((d) => d.dueDate <= TODAY).reduce((a, d) => a + d.interestAmount - (d.interestPaid ?? 0), 0);
+    expect(pending).toBe(s.result.loans[0].pendingToday);
+    expect(s.result.loans[0].periodsPending).toBeGreaterThanOrEqual(3);
+
+    // the closed loan: a record, closed, dated, nothing to collect, security released
+    expect(shut).toMatchObject({ status: "closed", principal_left: 0, closed_date: "2026-09-01", opening_principal: 0, opened_on: TODAY });
+    expect((await readLoan(owner.db, shut.id)).dues).toHaveLength(0);
+    expect((await admin.from("collateral").select("status").eq("loan_id", shut.id).single()).data!.status).toBe("released");
   });
 });

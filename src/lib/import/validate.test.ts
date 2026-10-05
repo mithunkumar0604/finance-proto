@@ -51,7 +51,7 @@ describe("a good row", () => {
   it("turns rupees into paise and dates into ISO dates", () => {
     expect(r.loans[0]).toMatchObject({
       row: 2,
-      customerKey: "9876543210",
+      customerKey: "np:ravi kumar|9876543210",
       type: "monthly",
       amount: 20000000,
       principalLeft: 12000000,
@@ -63,7 +63,7 @@ describe("a good row", () => {
       status: "active",
       security: null,
     });
-    expect(r.customers).toEqual([{ key: "9876543210", row: 2, name: "Ravi Kumar", phone: "9876543210", area: "Perundurai" }]);
+    expect(r.customers).toEqual([{ key: "np:ravi kumar|9876543210", row: 2, name: "Ravi Kumar", phone: "9876543210", area: "Perundurai" }]);
   });
   it("accepts ISO dates and a fixed interest in rupees", () => {
     const f = check(row({ start_date: "2026-02-01", interest_style: "fixed", interest_value: "2,500", interest_method: "fixed", frequency: "weekly", loan_type: "weekly" }));
@@ -73,15 +73,17 @@ describe("a good row", () => {
 });
 
 describe("one customer with several loans", () => {
-  it("is one customer, matched by phone", () => {
+  it("is one customer when the name and phone are the same", () => {
     const r = check(row(), row({ loan_type: "vehicle", loan_amount: "100000", principal_left: "100000", security_type: "vehicle", vehicle_registration: "tn 56 ar 4521", security_description: "Royal Enfield Classic 350" }));
     expect(r.errors).toEqual([]);
     expect(r.customers).toHaveLength(1);
     expect(r.loans).toHaveLength(2);
     expect(r.loans[1].security).toEqual({ kind: "vehicle", description: "Royal Enfield Classic 350", registration: "TN 56 AR 4521" });
   });
-  it("refuses the same phone under two different names", () => {
-    expect(messages(check(row(), row({ customer_name: "Someone Else" })))).toEqual(["3:customer_name"]);
+  it("the same phone under two different names is two customers (see opening.test.ts)", () => {
+    const r = check(row(), row({ customer_name: "Someone Else" }));
+    expect(r.errors).toEqual([]);
+    expect(r.customers).toHaveLength(2);
   });
   it("a row with no loan amount adds the customer only", () => {
     const r = check(row({ loan_type: "", loan_amount: "", principal_left: "", start_date: "", interest_style: "", interest_value: "", interest_method: "", frequency: "", next_due_date: "", security_type: "", status: "" }));
@@ -134,13 +136,14 @@ describe("bad rows are reported, each with its row and column", () => {
   });
 });
 
-describe("the sample file that ships with the template", () => {
-  const text = readFileSync("import/sample-20.csv", "utf8");
+describe("the made-up sample that ships with the template", () => {
+  const text = readFileSync("import/sample-22.csv", "utf8");
   const r = validateImport(text, TODAY);
-  it("is valid and has 20 loans", () => {
+  it("is valid, has 22 loans, and raises nothing that would change a balance", () => {
     expect(r.errors).toEqual([]);
-    expect(r.loans).toHaveLength(20);
-    expect(r.customers.length).toBeLessThan(20); // some customers have two loans
+    expect(r.loans).toHaveLength(22);
+    expect(r.customers).toHaveLength(20); // two customers have two loans each
+    expect(r.warnings.filter((w) => w.affectsBalance)).toEqual([]);
   });
   it("covers the kinds of record the business has", () => {
     expect(new Set(r.loans.map((l) => l.type))).toEqual(new Set(["weekly", "monthly", "15day", "30day", "vehicle", "jewel"]));
@@ -186,7 +189,7 @@ describe("a month that is already part-paid, and the last payment date", () => {
 });
 
 describe("the sample covers what the client was asked to include", () => {
-  const r = validateImport(readFileSync("import/sample-20.csv", "utf8"), TODAY);
+  const r = validateImport(readFileSync("import/sample-22.csv", "utf8"), TODAY);
   it("has a part-paid month and last payment dates", () => {
     expect(r.loans.some((l) => (l.interestAlreadyPaid ?? 0) > 0)).toBe(true);
     expect(r.loans.filter((l) => l.lastPaidDate).length).toBeGreaterThanOrEqual(5);

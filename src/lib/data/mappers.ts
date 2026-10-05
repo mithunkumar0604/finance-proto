@@ -77,6 +77,7 @@ export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPai
     closedDate: opt(r.closed_date),
     security: securityFromRow(collateral),
     ...(lastInterestPaidOn ? { lastInterestPaidOn } : {}),
+    ...(r.opened_on ? { opening: { on: r.opened_on, principalLeft: Number(r.opening_principal ?? 0) } } : {}),
     version: r.version,
   };
 }

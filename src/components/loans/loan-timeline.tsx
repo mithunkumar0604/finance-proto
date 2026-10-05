@@ -37,7 +37,8 @@ export function LoanTimeline({
   // Missed periods come first, each on its own; then the next one to collect.
   const firstComing = rows.findIndex((r) => r.date >= today);
   const items = payments.reduce<{ p: Payment; after: number }[]>(
-    (acc, p) => [...acc, { p, after: (acc.at(-1)?.after ?? loan.amount) - p.principal }],
+    // a loan brought in from the old book starts from the principal owed that day
+    (acc, p) => [...acc, { p, after: (acc.at(-1)?.after ?? loan.opening?.principalLeft ?? loan.amount) - p.principal }],
     [],
   );
 
@@ -50,6 +51,16 @@ export function LoanTimeline({
         </div>
         <p className="text-[13px] text-muted">Money given to customer</p>
       </Item>
+
+      {loan.opening && (
+        <Item dot="bg-faint" date={dShort(loan.opening.on)} year={loan.opening.on.slice(0, 4)}>
+          <div className="flex items-baseline justify-between gap-3">
+            <p className="font-bold">Brought into LedgerPro</p>
+            <p className="num text-[17px] font-extrabold">{money(loan.opening.principalLeft)}</p>
+          </div>
+          <p className="text-[13px] text-muted">Principal owed that day. Earlier payments are in the old book, not here.</p>
+        </Item>
+      )}
 
       {items.map(({ p, after }) => {
         const principalPaid = p.principal > 0;
