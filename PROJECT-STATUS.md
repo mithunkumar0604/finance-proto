@@ -88,7 +88,9 @@ Still to do on the hosted project:
   waivers, reversal, locked history, direct-write blocking, private files, import).
   The project was then reset, all 7 migrations re-applied, and re-verified: 18 of 18
   checks, every table empty, 0 logins, 0 stored files, sign-ups off.
-- A real backup and a compared restore (`BACKUP_RESTORE.md`).
+- ~~A real backup and a compared restore.~~ Done 5 October 2026 against the empty
+  hosted project; see "Last tested" in `BACKUP_RESTORE.md` for what it does and does
+  not prove. **The nightly schedule does not run until `production` is merged.**
 
 ## Needed to go live (only the project owner can do these)
 

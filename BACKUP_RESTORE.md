@@ -79,8 +79,31 @@ A wrong passphrase was refused.
 Repeated 4 October 2026 after the missed-interest change (the backup now also holds
 payment allocations, waivers and import records): all 12 fingerprints identical.
 
-**Not yet tested against the production Supabase project**, which does not exist
-yet. **Backup is not production-ready until this is done there:**
+**5 October 2026, against the hosted project (still empty):** the Backup workflow ran
+on GitHub, read the hosted database through the Session pooler, encrypted the dump and
+stored it in the private backup repository (`daily/` and `monthly/`, with its
+`.info.txt`). The downloaded file's SHA-256 matched the note; a wrong passphrase was
+refused; it was decrypted and restored into a wiped local database. All 12 per-table
+fingerprints and the table/column fingerprint matched the hosted project, the 18-point
+check passed on the restored copy, and the hosted project was unchanged. A second run,
+after the passphrase secret was re-created, also opened with the same passphrase.
+
+What that run does **not** prove, because the hosted project held no rows:
+
+- that real rows survive the trip from hosted (proven locally with the demo book;
+  repeat this test once real data exists);
+- restoring into a **hosted** Supabase project (only a local database was used).
+  Try it once on a throwaway project before relying on it.
+
+The passphrase contains a character outside plain English letters and digits. It
+works, but Windows tools can silently alter such characters (`setx` and console
+output did during this test). Keep the exact string in a password manager, and when
+it is next changed, prefer letters and digits only.
+
+Until `production` is merged, GitHub does not run the nightly schedule. A backup is
+started by changing `.github/backup-trigger` on `production` and pushing.
+
+The steps of the test, for repeating it:
 
 1. Run Actions → Backup once. Check a new file appears in the backup repository.
 2. Download it and restore it into a second, empty Supabase project (or the local
