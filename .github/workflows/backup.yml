@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: "30 20 * * *" # 02:00 IST
   workflow_dispatch:
+  # GitHub runs schedules and the "Run workflow" button only for the default branch.
+  # Until `production` is merged, a backup is started by changing this one file on
+  # `production` (put today's date in it and push).
+  push:
+    branches: [production]
+    paths: [".github/backup-trigger"]
 
 concurrency:
   group: backup
@@ -36,7 +42,19 @@ jobs:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: |
           mkdir -p dump
-          scripts/backup.sh "dump/ledgerpro-$(date -u +%Y-%m-%d).sql.gz.gpg"
+          file="dump/ledgerpro-$(date -u +%Y-%m-%d).sql.gz.gpg"
+          scripts/backup.sh "$file" | tee dump/log.txt
+          # A small note beside each backup: when it was made, its fingerprint, and row counts.
+          # No customer data and nothing secret is in it.
+          {
+            echo "made_at_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "sha256: $(sha256sum "$file" | cut -d' ' -f1)"
+            echo "bytes: $(wc -c < "$file")"
+            echo "commit: ${GITHUB_SHA}"
+            echo "rows:"
+            sed -n '/^Rows:/,$p' dump/log.txt | tail -n +2 | sed 's/^/  /'
+          } > "${file%.sql.gz.gpg}.info.txt"
+          rm dump/log.txt
 
       - name: Store in the private backup repository
         env:
@@ -46,16 +64,17 @@ jobs:
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$BACKUP_REPO_TOKEN" | base64 -w0)"
           git -c http.extraheader="$auth" clone --depth 1 "https://github.com/${{ vars.BACKUP_REPO }}.git" store
           mkdir -p store/daily store/monthly
-          cp dump/*.gpg store/daily/
+          cp dump/*.gpg dump/*.info.txt store/daily/
           # keep the first backup of each month for good
           month="store/monthly/ledgerpro-$(date -u +%Y-%m).sql.gz.gpg"
           test -f "$month" || cp dump/*.gpg "$month"
           # keep 60 daily backups
           ls -1 store/daily/*.gpg | sort | head -n -60 | xargs -r rm -f
+          ls -1 store/daily/*.info.txt | sort | head -n -60 | xargs -r rm -f
           cd store
           git config user.name "ledgerpro-backup"
           git config user.email "backup@users.noreply.github.com"
           git add -A
-          git commit -q -m "Backup $(date -u +%Y-%m-%d)"
-          git -c http.extraheader="$auth" push -q
+          git diff --cached --quiet || git commit -q -m "Backup $(date -u +%Y-%m-%d)"
+          git -c http.extraheader="$auth" push -q origin HEAD
           echo "Stored. Daily backups kept: $(ls -1 daily | wc -l)"
