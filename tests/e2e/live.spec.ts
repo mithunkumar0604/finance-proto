@@ -750,6 +750,20 @@ for (const mode of ["never answers", "fails"] as const) {
   });
 }
 
+test("Settings has a plain Logout for this device, next to logging out the other devices", async ({ page }) => {
+  await signInOwner(page);
+  await page.goto("/settings/");
+  // the other-devices button keeps this device signed in
+  await page.getByRole("button", { name: "Logout all other devices" }).click();
+  await expect(page.getByText("You are still signed in here")).toBeVisible();
+  await expect(page).toHaveURL(/settings/);
+  // the plain one signs this device out
+  await page.getByRole("button", { name: "Logout from this device" }).click();
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
+  await page.goto("/home/");
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toBeVisible();
+});
+
 test("Sign out from the lock screen works when the server never answers", async ({ page }) => {
   await signInOwner(page);
   await page.goto("/more/");

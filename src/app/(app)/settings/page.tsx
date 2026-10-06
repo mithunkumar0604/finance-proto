@@ -2,6 +2,7 @@
 
 import { clsx } from "clsx";
 import { KeyRound, Laptop, Lock, LockKeyhole, LogOut, RotateCcw, Smartphone, Tablet, Timer } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PinPad } from "@/components/layout/lock-screen";
 import { PageHeader } from "@/components/layout/page-header";
@@ -27,6 +28,7 @@ export default function SettingsPage() {
   const { busy, run } = useSave();
   const [pinStep, setPinStep] = useState<"closed" | "current" | "new">("closed");
   const [changingPassword, setChangingPassword] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -106,6 +108,15 @@ export default function SettingsPage() {
           </div>
         ))}
       </Card>
+      <Button
+        variant="secondary"
+        className="mb-2.5 w-full"
+        onClick={() => {
+          void actions.logout().then(() => router.replace("/"));
+        }}
+      >
+        <LogOut className="size-4" /> Logout from this device
+      </Button>
       <Button
         variant="danger"
         className="mb-8 w-full"
