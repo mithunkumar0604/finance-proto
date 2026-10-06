@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 5 October 2026.
+Last updated: 6 October 2026.
 
 ## Where things stand
 
@@ -62,7 +62,7 @@ Full rules, and the assumptions still to confirm: `docs/BUSINESS-RULES.md`.
 | Private file storage with access rules (bucket + policies, tested) | Done |
 | Import of existing customers and loans from CSV (`IMPORT.md`) | Done; tested with 20 sample rows. **No real data imported** |
 | Photos and documents of security (jewel, vehicle, document): add, view, replace, remove | Done |
-| Customer photo and ID photo boxes (customer page, new customer) | **Not wired** (still placeholders; not asked for) |
+| Customer photo (New Customer) and ID photos (customer page, Docs tab) | Done (6 October 2026), same rules as security photos |
 | Change Password (More → Settings → Security) | Done |
 | Encrypted nightly backup + restore script | Done; runs nightly from `main`; restore tested **locally only** |
 | CI (lint, types, unit tests, build, database tests) | Running on GitHub for `production` and `main` |
@@ -222,7 +222,7 @@ The design is unchanged. Additions, all small:
 
 ## Known gaps and follow-ups
 
-- The customer photo and ID photo boxes are still placeholders (security photos work).
+- A customer photo is kept and shown on the Docs tab; it is not yet used as the round picture beside the name.
 - Uploaded photos are not in the nightly backup (it covers the database). Download the
   `documents` bucket from the Supabase dashboard from time to time.
 - Only the latest payment on a loan can be deleted; older ones after deleting the later ones.
