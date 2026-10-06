@@ -586,6 +586,11 @@ test("Change Password: the current one is checked, the new one works, the old on
   await submit.click();
   await expect(page.getByText("Password changed")).toBeVisible();
   await expect(sheet).toHaveCount(0);
+  // and it stays signed in: not thrown back to the sign-in screen a moment later
+  await page.waitForTimeout(6000);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign In", exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(/settings/);
   await page.reload();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 
