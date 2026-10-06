@@ -63,7 +63,7 @@ DB_URL=... BACKUP_PASSPHRASE=... scripts/backup.sh test.sql.gz.gpg
 
 # 3. restore it into an empty local database
 npx supabase start && npx supabase db reset
-DB_URL=postgresql://postgres:postgres@127.0.0.1:56322/postgres BACKUP_PASSPHRASE=... scripts/restore.sh test.sql.gz.gpg
+DB_URL=postgresql://postgres:postgres@127.0.0.1:15322/postgres BACKUP_PASSPHRASE=... scripts/restore.sh test.sql.gz.gpg
 
 # 4. fingerprint the restored data and compare
 ... same as step 1, against the local database ... > after.txt

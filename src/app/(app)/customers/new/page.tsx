@@ -1,13 +1,15 @@
 "use client";
 
-import { Landmark, UserRound } from "lucide-react";
-import { useState } from "react";
+import { Camera, Landmark, UserRound } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar, Card } from "@/components/ui/bits";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Field, Input, PhotoPlaceholder, Textarea } from "@/components/ui/form";
+import { toast } from "@/components/ui/toast";
+import { FILE_ACCEPT, fileProblem } from "@/lib/files";
 import { phoneFmt } from "@/lib/format";
-import { actions } from "@/lib/store";
+import { actions, LIVE } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
 import type { Customer } from "@/lib/types";
 
@@ -15,6 +17,7 @@ export default function NewCustomerPage() {
   const [saved, setSaved] = useState<Customer | null>(null);
   const [f, setF] = useState({ name: "", phone: "", altPhone: "", area: "", address: "", idRef: "", notes: "" });
   const [touched, setTouched] = useState(false);
+  const [photo, setPhoto] = useState<File | undefined>();
   const { busy, run } = useSave();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
@@ -28,18 +31,24 @@ export default function NewCustomerPage() {
   const save = async () => {
     setTouched(true);
     if (!valid) return;
-    const c = await run(() =>
-      actions.addCustomer({
-      name: f.name.trim(),
-      phone: phoneDigits,
-      altPhone: f.altPhone.replace(/\D/g, "") || undefined,
-      area: f.area.trim() || "—",
-      address: f.address.trim() || undefined,
-      idRef: f.idRef.trim() || undefined,
-      notes: f.notes.trim() || undefined,
-      }),
-    );
-    if (c) setSaved(c);
+    // One "save": the customer first, then the photo. If the photo fails the customer stays,
+    // and the photo can be added from the customer's page.
+    const done = await run(async () => {
+      const c = await actions.addCustomer({
+        name: f.name.trim(),
+        phone: phoneDigits,
+        altPhone: f.altPhone.replace(/\D/g, "") || undefined,
+        area: f.area.trim() || "—",
+        address: f.address.trim() || undefined,
+        idRef: f.idRef.trim() || undefined,
+        notes: f.notes.trim() || undefined,
+      });
+      const failed = photo ? await actions.savePhotos(c.id, { photo }) : 0;
+      return { c, failed };
+    });
+    if (!done) return;
+    if (done.failed) toast("The customer is saved, but the photo could not be saved. Add it from the customer's page (Docs).", "error");
+    setSaved(done.c);
   };
 
   if (saved)
@@ -70,7 +79,7 @@ export default function NewCustomerPage() {
       <PageHeader title="New Customer" subtitle="Only name and mobile are required" />
       <Card className="space-y-5 p-5">
         <div className="flex items-center gap-4">
-          <PhotoPlaceholder label="Photo" className="size-24 shrink-0 rounded-full" />
+          {LIVE ? <CustomerPhotoPick file={photo} onPick={setPhoto} /> : <PhotoPlaceholder label="Photo" className="!size-24 shrink-0 rounded-full" />}
           <p className="text-sm text-muted">Add a photo so collectors can recognise the customer. (Optional)</p>
         </div>
         <Field label="Full Name" required hint={touched && errors.name ? <span className="text-rose-600">{errors.name}</span> : undefined}>
@@ -99,9 +108,44 @@ export default function NewCustomerPage() {
       </Card>
       <div className="sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-10 -mx-4 mt-5 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pt-6 pb-3 md:bottom-0 md:mx-0 md:px-0 md:pb-6">
         <Button size="lg" className="w-full uppercase tracking-wide" onClick={save} disabled={busy}>
-          Save &amp; Continue
+          {busy ? "Saving…" : <>Save &amp; Continue</>}
         </Button>
       </div>
     </div>
+  );
+}
+
+/** The round photo box: choose a photo (camera or gallery on a phone); it is saved together with the customer. */
+function CustomerPhotoPick({ file, onPick }: { file?: File; onPick: (f: File | undefined) => void }) {
+  const preview = useMemo(() => (file && file.type !== "application/pdf" ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
+  return (
+    <label
+      aria-label={file ? "Change customer photo" : "Add customer photo"}
+      className={`relative flex size-24 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-full border-2 border-dashed text-sm font-medium transition ${file ? "border-brand-600 text-brand-800" : "border-line text-muted hover:border-brand-200 hover:bg-brand-50/50"}`}
+    >
+      <input
+        type="file"
+        accept={FILE_ACCEPT}
+        className="sr-only"
+        onChange={(e) => {
+          const picked = e.target.files?.[0];
+          e.target.value = "";
+          if (!picked) return;
+          const problem = fileProblem(picked);
+          if (problem) toast(problem, "error");
+          else onPick(picked);
+        }}
+      />
+      {preview ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a preview of the file just chosen on this device
+        <img src={preview} alt="" className="absolute inset-0 size-full object-cover" />
+      ) : (
+        <>
+          <Camera className="size-6" />
+          {file ? "PDF" : "Photo"}
+        </>
+      )}
+    </label>
   );
 }

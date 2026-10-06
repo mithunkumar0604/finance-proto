@@ -491,10 +491,11 @@ export const actions = {
   },
 
   /**
-   * LIVE: save the photos chosen while a loan was being created. Returns how many could
-   * not be saved (the loan itself is already saved, so this never throws).
+   * LIVE: save the photos chosen while a loan or a customer was being created, under that
+   * loan's or customer's id. Returns how many could not be saved (the loan or customer
+   * itself is already saved, so this never throws).
    */
-  async saveLoanPhotos(loanId: string, photos: Record<string, File>): Promise<number> {
+  async savePhotos(loanId: string, photos: Record<string, File>): Promise<number> {
     if (!LIVE) return 0;
     let failed = 0;
     for (const [slot, file] of Object.entries(photos)) await remote.uploadLoanFile(loanId, slot, file).catch(() => failed++);

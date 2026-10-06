@@ -121,7 +121,7 @@ function Wizard() {
     const saved = await run(async () => {
       const loan = await actions.createLoan(draft, saveKey);
       const tiles = new Set(loan.security ? slotsFor(loan.security.kind).map((t) => t.id) : []);
-      const failed = await actions.saveLoanPhotos(loan.id, Object.fromEntries(Object.entries(photos).filter(([slot]) => tiles.has(slot))));
+      const failed = await actions.savePhotos(loan.id, Object.fromEntries(Object.entries(photos).filter(([slot]) => tiles.has(slot))));
       return { loan, failed };
     });
     if (!saved) return;

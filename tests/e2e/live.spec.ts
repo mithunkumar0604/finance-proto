@@ -439,6 +439,42 @@ test("a photo chosen while giving a loan is saved with the new loan", async ({ p
   expect((await filesOf(id))[0]).toMatch(/^item-\d+\.png$/);
 });
 
+test("a customer's photo is saved with the new customer, and ID photos are added on the customer's page", async ({ page }) => {
+  await signInOwner(page);
+  await page.goto("/customers/new/");
+  const name = `Photo Person ${Date.now() % 100000}`;
+  // the photo box is a small round button beside its hint, not a wide strip
+  const box = await page.locator("label[aria-label='Add customer photo']").boundingBox();
+  expect(Math.abs(box!.width - box!.height)).toBeLessThan(2);
+  expect(box!.width).toBeLessThan(120);
+  await expect(page.getByText("Add a photo so collectors can recognise the customer")).toBeVisible();
+
+  await chooseFile(page, () => page.locator("label[aria-label='Add customer photo']").click(), { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("x") });
+  await expect(page.getByRole("alert").filter({ hasText: "Use a photo" })).toBeVisible();
+  await chooseFile(page, () => page.locator("label[aria-label='Add customer photo']").click(), { name: "face.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.locator("label[aria-label='Change customer photo']").locator("img")).toBeVisible();
+  await page.screenshot({ path: "test-results/new-customer-photo.png" });
+
+  await page.getByPlaceholder("e.g. Ravi Kumar").fill(name);
+  await page.locator("input[inputmode=tel]").first().fill("9123456781");
+  await page.getByRole("button", { name: /Save/i }).click();
+  await expect(page.getByRole("heading", { name: "Customer Saved" })).toBeVisible();
+  const { data: customer } = await admin.from("customers").select("id").eq("name", name).single();
+  expect(await filesOf(customer!.id)).toHaveLength(1);
+  expect((await filesOf(customer!.id))[0]).toMatch(/^photo-\d+\.png$/);
+
+  // the customer's page: the photo is there, and ID photos can be added
+  await page.getByRole("link", { name: /View Profile/ }).click();
+  await page.waitForURL(/customer/);
+  await page.getByRole("tab", { name: "Docs" }).click();
+  await expect(page.getByRole("button", { name: "Open Customer photo" })).toBeVisible();
+  await chooseFile(page, () => page.getByRole("button", { name: "Add ID front" }).click(), { name: "id.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("ID front saved")).toBeVisible();
+  expect((await filesOf(customer!.id)).some((n) => /^idfront-\d+\.png$/.test(n))).toBe(true);
+  await expectClean(page, "customer documents");
+  await page.screenshot({ path: "test-results/customer-documents.png", fullPage: true });
+});
+
 test("Change Password: the current one is checked, the new one works, the old one stops working", async ({ page }) => {
   const STAFF = "98000 45678";
   const NEW = "new-password-2026";
@@ -572,7 +608,7 @@ test("new customer and new loan are saved to the database", async ({ page }) => 
   await signInOwner(page);
   await page.goto("/customers/new/");
   const name = `Test Person ${Date.now() % 100000}`;
-  await page.locator("input").nth(0).fill(name);
+  await page.getByPlaceholder("e.g. Ravi Kumar").fill(name);
   await page.locator("input[inputmode=tel]").first().fill("9123456780");
   await page.getByRole("button", { name: /Save/i }).click();
   await expect(page.getByRole("heading", { name: "Customer Saved" })).toBeVisible();

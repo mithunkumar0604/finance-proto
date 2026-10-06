@@ -556,6 +556,34 @@ describe("private documents", () => {
     expect((await admin.storage.from("documents").list(loanId)).data!.map((f) => f.name)).toEqual(["front-1.png"]);
   });
 
+  it("a customer's photo and ID photos are kept under the customer, with the same rules", async () => {
+    const mine = await addCustomer(owner.db, "Photo Customer", collector.id);
+    const up = (who: TestUser, path: string) => who.db.storage.from("documents").upload(path, png);
+    // owner and staff add; a collector does not
+    expect((await up(staff, `${mine}/photo-100.png`)).error).toBeNull();
+    expect((await up(owner, `${mine}/idfront-100.png`)).error).toBeNull();
+    expect((await up(collector, `${mine}/idback-100.png`)).error).not.toBeNull();
+    // not under a customer that does not exist
+    expect((await up(owner, `C99999999/photo-1.png`)).error).not.toBeNull();
+    // staff cannot put a newer photo over the first; the owner can
+    expect((await up(staff, `${mine}/photo-999.png`)).error).not.toBeNull();
+    expect((await up(owner, `${mine}/photo-200.png`)).error).toBeNull();
+
+    // the customer's own collector sees them through a signed link; another collector sees nothing
+    const signed = await collector.db.storage.from("documents").createSignedUrl(`${mine}/photo-100.png`, 60);
+    expect(signed.error).toBeNull();
+    expect((await fetch(signed.data!.signedUrl)).ok).toBe(true);
+    expect((await otherCollector.db.storage.from("documents").createSignedUrl(`${mine}/photo-100.png`, 60)).error).not.toBeNull();
+    expect((await otherCollector.db.storage.from("documents").list(mine)).data).toEqual([]);
+    // no public address, nothing without signing in
+    expect((await fetch(admin.storage.from("documents").getPublicUrl(`${mine}/photo-100.png`).data.publicUrl)).ok).toBe(false);
+    expect((await anon.storage.from("documents").download(`${mine}/photo-100.png`)).error).not.toBeNull();
+    // only the owner removes
+    await staff.db.storage.from("documents").remove([`${mine}/photo-100.png`]);
+    expect((await owner.db.storage.from("documents").download(`${mine}/photo-100.png`)).error).toBeNull();
+    expect((await owner.db.storage.from("documents").remove([`${mine}/photo-100.png`])).data).toHaveLength(1);
+  });
+
   it("staff can fill an empty tile but cannot put a newer photo over an existing one; the owner can", async () => {
     const { loanId } = await newLoan();
     const up = (who: TestUser, name: string) => who.db.storage.from("documents").upload(`${loanId}/${name}`, png);

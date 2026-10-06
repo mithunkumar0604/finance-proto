@@ -6,6 +6,7 @@ import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { useUI } from "@/components/layout/ui-context";
 import { LoanCard, SecurityIcon, securityLabel } from "@/components/loans/loan-card";
+import { FileTiles } from "@/components/security/security-files";
 import { Avatar, Card, Chip, EmptyState, Segmented, Skeleton } from "@/components/ui/bits";
 import { Button, buttonClass, LinkButton } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/form";
@@ -13,7 +14,8 @@ import { toast } from "@/components/ui/toast";
 import { paymentTotal } from "@/lib/finance/engine";
 import { dLong, dShort, METHOD_LABEL, money, phoneFmt, todayISO } from "@/lib/format";
 import { customerView, permissions } from "@/lib/selectors";
-import { actions, useAppState } from "@/lib/store";
+import { CUSTOMER_SLOTS } from "@/lib/files";
+import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
 import { useSave } from "@/lib/use-save";
 
@@ -178,14 +180,19 @@ function CustomerProfile() {
                     </span>
                     <p className="text-[15px]">{c.idRef ?? "No ID reference saved"}</p>
                   </div>
-                  <div className="mt-4 grid grid-cols-3 gap-2">
-                    {["Customer photo", "ID front", "ID back"].map((t) => (
-                      <div key={t} className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-line text-xs text-muted">
-                        <ImageIcon className="size-5" />
-                        {t}
-                      </div>
-                    ))}
-                  </div>
+                  {LIVE ? (
+                    // owner and staff add photos, only the owner removes them (the storage rules enforce both)
+                    <FileTiles key={c.id} folder={c.id} slots={CUSTOMER_SLOTS} canAdd={perm.role !== "collector"} canRemove={perm.role === "owner"} />
+                  ) : (
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      {CUSTOMER_SLOTS.map((t) => (
+                        <div key={t.id} className="flex aspect-[4/3] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-line text-xs text-muted">
+                          <ImageIcon className="size-5" />
+                          {t.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </Card>
                 {v.securities.map(({ loan, security }) => (
                   <Card key={loan.id} className="flex items-center gap-3 p-4">

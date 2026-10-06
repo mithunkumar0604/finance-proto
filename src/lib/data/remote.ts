@@ -315,7 +315,7 @@ export async function updateUser(id: string, patch: Partial<Pick<AppUser, "name"
 // ---------------------------------------------------------------------------
 // Photos and documents of what is held as security
 // ---------------------------------------------------------------------------
-// One private storage bucket. A file is "<loan id>/<tile>-<time>.<ext>". Who may read,
+// One private storage bucket. A file is "<loan id or customer id>/<tile>-<time>.<ext>". Who may read,
 // add and remove is decided by the bucket's policies in the database (whoever can see
 // the loan reads; owner and staff add; only the owner removes). Nothing has a public
 // address: a file is shown through a signed link that stops working after an hour.
@@ -358,13 +358,42 @@ export async function listLoanFiles(loanId: string): Promise<LoanFile[]> {
   });
 }
 
+interface Picture {
+  width: number;
+  height: number;
+  source: CanvasImageSource;
+  close: () => void;
+}
+
+/** Opens a photo for drawing. Older phones (some iPhones) cannot do it the quick way, so there is a second way. */
+async function readPicture(file: File): Promise<Picture> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+      return { width: bmp.width, height: bmp.height, source: bmp, close: () => bmp.close() };
+    } catch {
+      // fall through to the <img> way
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const el = new Image();
+    el.src = url;
+    await el.decode();
+    return { width: el.naturalWidth, height: el.naturalHeight, source: el, close: () => URL.revokeObjectURL(url) };
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw e;
+  }
+}
+
 /** Phone cameras make 5–10 MB photos. A photo is made smaller (longest side 1600 px) before it is sent. */
 async function shrinkPhoto(file: File, type: string): Promise<Blob> {
   // a file whose type the picker left empty is sent with the type worked out from its name
   const asIs = file.type === type ? file : new Blob([file], { type });
-  if (type === "application/pdf" || typeof createImageBitmap !== "function") return asIs;
+  if (type === "application/pdf") return asIs;
   try {
-    const img = await createImageBitmap(file, { imageOrientation: "from-image" });
+    const img = await readPicture(file);
     const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
     if (scale === 1 && file.size <= 600 * 1024) {
       img.close();
@@ -377,7 +406,7 @@ async function shrinkPhoto(file: File, type: string): Promise<Blob> {
     // JPEG has no see-through: without this, clear parts of a PNG would come out black
     pen.fillStyle = "#fff";
     pen.fillRect(0, 0, canvas.width, canvas.height);
-    pen.drawImage(img, 0, 0, canvas.width, canvas.height);
+    pen.drawImage(img.source, 0, 0, canvas.width, canvas.height);
     img.close();
     const small = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/jpeg", 0.82));
     return small && small.size < file.size ? small : asIs;

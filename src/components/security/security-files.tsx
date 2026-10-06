@@ -6,19 +6,18 @@ import { Button, buttonClass } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { listLoanFiles, loanFilePaths, removeLoanFiles, uploadLoanFile, type LoanFile } from "@/lib/data/remote";
-import { FILE_ACCEPT, slotsFor, type FileSlot } from "@/lib/files";
-import type { Security } from "@/lib/types";
+import { FILE_ACCEPT, type FileSlot } from "@/lib/files";
 import { errorText } from "@/lib/use-save";
 
 const TILE = "relative flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-2xl bg-line-2 text-xs text-muted";
 
 /**
- * LIVE: the three photo tiles of a security, backed by private storage. An empty tile
+ * LIVE: photo tiles backed by private storage: the three of a loan's security (folder =
+ * the loan's id) or the three of a customer (folder = the customer's id). An empty tile
  * adds a file (owner and staff); a filled one opens it, where the owner can also replace
  * or remove it. Files are shown through signed links only.
  */
-export function SecurityFiles({ loanId, kind, canAdd, canRemove }: { loanId: string; kind: Security["kind"]; canAdd: boolean; canRemove: boolean }) {
-  const slots = slotsFor(kind);
+export function FileTiles({ folder: loanId, slots, canAdd, canRemove }: { folder: string; slots: FileSlot[]; canAdd: boolean; canRemove: boolean }) {
   // null until the first read: a tile is not offered as empty before it is known to be
   const [files, setFiles] = useState<Record<string, LoanFile> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);

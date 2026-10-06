@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deletablePayment, deleteReason } from "./delete-payment";
-import { fileProblem, filePath, fileType, latestPerSlot, MAX_FILE_BYTES, slotsFor } from "./files";
+import { CUSTOMER_SLOTS, fileProblem, filePath, fileType, latestPerSlot, MAX_FILE_BYTES, slotsFor } from "./files";
 import { passwordProblem } from "./password";
 import type { Payment } from "./types";
 
@@ -69,6 +69,12 @@ describe("photo and document files", () => {
   it("shows the newest file of each tile", () => {
     const got = latestPerSlot(["front-100.jpg", "front-300.png", "rc-200.pdf", "front-200.jpg", "junk.txt"]);
     expect(got).toEqual({ front: "front-300.png", rc: "rc-200.pdf" });
+  });
+
+  it("has three tiles for a customer: photo, ID front, ID back", () => {
+    expect(CUSTOMER_SLOTS.map((s) => s.label)).toEqual(["Customer photo", "ID front", "ID back"]);
+    for (const s of CUSTOMER_SLOTS) expect(s.id).toMatch(/^[a-z0-9]+$/);
+    expect(filePath("C014", CUSTOMER_SLOTS[0].id, "image/jpeg", 7)).toBe("C014/photo-7.jpg");
   });
 
   it("has three tiles for each kind of security", () => {

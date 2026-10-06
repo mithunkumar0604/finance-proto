@@ -9,7 +9,7 @@ import { collateralToRow } from "../src/lib/data/mappers";
 import { loginEmail } from "../src/lib/data/supabase";
 import { buildDemoDB, DEMO_USERS } from "../src/lib/demo-data";
 
-const url = process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:56321";
+const url = process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:15321";
 // The fixed, public service key every local Supabase stack uses. Not a secret.
 const serviceKey = process.env.SUPABASE_TEST_SECRET_KEY ?? process.env.SUPABASE_TEST_SERVICE_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 export const LOCAL_PASSWORD = "ledger-local-1";

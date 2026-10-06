@@ -1,6 +1,6 @@
 // Photos and scans of what is held as security. The rules here are plain checks the
 // screens share; reading and saving is in ./data/remote. Files live in a private
-// storage bucket as "<loan id>/<tile>-<time>.<ext>" and are only ever shown through
+// storage bucket as "<loan id or customer id>/<tile>-<time>.<ext>" and are only ever shown through
 // short-lived signed links.
 
 import type { Security } from "./types";
@@ -24,6 +24,9 @@ const SLOTS: Record<"vehicle" | "jewel" | "document", FileSlot[]> = {
   jewel: [{ id: "item", label: "Item photo" }, { id: "weighing", label: "Weighing" }, { id: "packet", label: "Packet" }],
   document: [{ id: "page1", label: "Page 1" }, { id: "page2", label: "Page 2" }, { id: "receipt", label: "Receipt" }],
 };
+
+/** The three tiles on a customer's Documents tab. Kept under the customer's id, like a loan's under the loan's. */
+export const CUSTOMER_SLOTS: FileSlot[] = [{ id: "photo", label: "Customer photo" }, { id: "idfront", label: "ID front" }, { id: "idback", label: "ID back" }];
 
 /** The three tiles shown for a kind of security. */
 export const slotsFor = (kind: Security["kind"]): FileSlot[] => SLOTS[kind === "other" ? "document" : kind];

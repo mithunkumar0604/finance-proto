@@ -2,7 +2,7 @@
 
 import { Image as ImageIcon } from "lucide-react";
 import { SecurityIcon } from "@/components/loans/loan-card";
-import { SecurityFiles } from "@/components/security/security-files";
+import { FileTiles } from "@/components/security/security-files";
 import { Chip, Row } from "@/components/ui/bits";
 import { slotsFor } from "@/lib/files";
 import { money } from "@/lib/format";
@@ -67,7 +67,7 @@ export function SecurityDetails({ sec, files }: { sec: Security; files?: { loanI
       </div>
 
       {files ? (
-        <SecurityFiles key={files.loanId} kind={sec.kind} {...files} />
+        <FileTiles key={files.loanId} folder={files.loanId} slots={slotsFor(sec.kind)} canAdd={files.canAdd} canRemove={files.canRemove} />
       ) : (
         <div className="mt-3 grid grid-cols-3 gap-2">
           {slotsFor(sec.kind).map((t) => (
