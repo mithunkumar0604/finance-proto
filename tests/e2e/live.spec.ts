@@ -473,6 +473,75 @@ test("a customer's photo is saved with the new customer, and ID photos are added
   expect((await filesOf(customer!.id)).some((n) => /^idfront-\d+\.png$/.test(n))).toBe(true);
   await expectClean(page, "customer documents");
   await page.screenshot({ path: "test-results/customer-documents.png", fullPage: true });
+
+  // the photo is the round picture beside the customer's name, also after a reload
+  const face = page.getByRole("img", { name: `Photo of ${name}` });
+  await expect(face).toBeVisible();
+  await expect.poll(() => face.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
+  await page.reload();
+  await expect(page.getByRole("img", { name: `Photo of ${name}` })).toBeVisible();
+
+  // it can be changed from there: one photo is kept, the old one is gone
+  const before = (await filesOf(customer!.id)).filter((n) => n.startsWith("photo-"));
+  await chooseFile(page, () => page.getByRole("button", { name: "Change photo" }).click(), { name: "face2.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("Photo changed")).toBeVisible();
+  const after = (await filesOf(customer!.id)).filter((n) => n.startsWith("photo-"));
+  expect(after).toHaveLength(1);
+  expect(after).not.toEqual(before);
+  await page.screenshot({ path: "test-results/customer-photo-header.png" });
+});
+
+test("a customer's details can be edited after saving", async ({ page }) => {
+  const name = `Edit Person ${Date.now() % 100000}`;
+  const { data: made } = await admin.from("customers").insert({ name, phone: "9000011111", area: "Old Area" }).select("id").single();
+  await signInOwner(page);
+  await page.goto(`/customer/?id=${made!.id}`);
+  await expect(page.getByRole("heading", { name })).toBeVisible();
+  // no photo yet: the initials, with a button to add one
+  await expect(page.getByRole("button", { name: "Add photo" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Edit" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("heading", { name: "Edit Customer" })).toBeVisible();
+  await expect(sheet.getByLabel("Full Name")).toHaveValue(name);
+  await expect(sheet.getByLabel("Mobile Number")).toHaveValue("90000 11111");
+
+  // a wrong number is refused and nothing is saved
+  await sheet.getByLabel("Mobile Number").fill("12345");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("10-digit");
+  expect((await admin.from("customers").select("phone").eq("id", made!.id).single()).data!.phone).toBe("9000011111");
+
+  await sheet.getByLabel("Full Name").fill(name + " Jr");
+  await sheet.getByLabel("Mobile Number").fill("90000 22222");
+  await sheet.getByLabel("Alternate Number").fill("9000033333");
+  await sheet.getByLabel("Area / Location").fill("New Area");
+  await sheet.getByLabel("Address").fill("12 Test Street");
+  await sheet.getByLabel("ID Reference").fill("Aadhaar 1234");
+  await page.screenshot({ path: "test-results/edit-customer-sheet.png" });
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(page.getByText("Customer updated")).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+
+  await expect(page.getByRole("heading", { name: name + " Jr" })).toBeVisible();
+  await expect(page.locator("main")).toContainText("90000 22222");
+  await expect(page.locator("main")).toContainText("New Area");
+  const { data: row } = await admin.from("customers").select("*").eq("id", made!.id).single();
+  expect(row).toMatchObject({ name: name + " Jr", phone: "9000022222", alt_phone: "9000033333", area: "New Area", address: "12 Test Street", id_ref: "Aadhaar 1234" });
+  // the change is in the owner's activity list
+  const log = (await admin.from("activity").select("text").eq("customer_id", made!.id).order("id", { ascending: false }).limit(1)).data!;
+  expect(log[0].text).toContain("Edited customer");
+  await expectClean(page, "customer after edit");
+});
+
+test("a collector cannot edit a customer or change the photo", async ({ page }) => {
+  await signIn(page, COLLECTOR);
+  await page.waitForURL(/home/);
+  await page.goto("/customer/?id=C001");
+  await expect(page.getByRole("heading", { name: "Ravi Kumar" })).toBeVisible();
+  await page.waitForTimeout(1500);
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^(Add|Change) photo$/ })).toHaveCount(0);
 });
 
 test("Change Password: the current one is checked, the new one works, the old one stops working", async ({ page }) => {

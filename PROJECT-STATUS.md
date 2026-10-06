@@ -222,7 +222,8 @@ The design is unchanged. Additions, all small:
 
 ## Known gaps and follow-ups
 
-- A customer photo is kept and shown on the Docs tab; it is not yet used as the round picture beside the name.
+- A customer's photo is the round picture beside the name on the customer's page (and a tile on the Docs tab). Lists still show initials.
+- Customers can be edited (Edit on the customer's page: name, numbers, area, address, ID reference). They cannot be deleted.
 - Uploaded photos are not in the nightly backup (it covers the database). Download the
   `documents` bucket from the Supabase dashboard from time to time.
 - Only the latest payment on a loan can be deleted; older ones after deleting the later ones.

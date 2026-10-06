@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deletablePayment, deleteReason } from "./delete-payment";
 import { CUSTOMER_SLOTS, fileProblem, filePath, fileType, latestPerSlot, MAX_FILE_BYTES, slotsFor } from "./files";
+import { customerProblem } from "./customer-form";
 import { passwordProblem } from "./password";
 import type { Payment } from "./types";
 
@@ -84,6 +85,27 @@ describe("photo and document files", () => {
     expect(slotsFor("other").map((s) => s.label)).toEqual(["Page 1", "Page 2", "Receipt"]);
     // tile ids are used in file names: letters and digits only
     for (const kind of ["vehicle", "jewel", "document", "other"] as const) for (const s of slotsFor(kind)) expect(s.id).toMatch(/^[a-z0-9]+$/);
+  });
+});
+
+describe("edit customer", () => {
+  const was = { phone: "9876543210" };
+  it("needs a name", () => {
+    expect(customerProblem({ name: "  ", phone: "9876543210" }, was)).toMatch(/name/i);
+    expect(customerProblem({ name: "Ravi", phone: "9876543210" }, was)).toBeNull();
+  });
+  it("needs a 10-digit mobile number, however it is typed", () => {
+    expect(customerProblem({ name: "Ravi", phone: "98765 4321" }, was)).toMatch(/10-digit/);
+    expect(customerProblem({ name: "Ravi", phone: "98765 43210" }, was)).toBeNull();
+    expect(customerProblem({ name: "Ravi", phone: "" }, was)).toMatch(/10-digit/);
+  });
+  it("a customer brought in without a phone may stay without one", () => {
+    expect(customerProblem({ name: "Sita", phone: "" }, { phone: "" })).toBeNull();
+    expect(customerProblem({ name: "Sita", phone: "123" }, { phone: "" })).toMatch(/10-digit/);
+  });
+  it("an alternate number, if given, is 10 digits too", () => {
+    expect(customerProblem({ name: "Ravi", phone: "9876543210", altPhone: "12345" }, was)).toMatch(/alternate/i);
+    expect(customerProblem({ name: "Ravi", phone: "9876543210", altPhone: "91234 56780" }, was)).toBeNull();
   });
 });
 

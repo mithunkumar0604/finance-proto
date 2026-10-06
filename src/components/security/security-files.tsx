@@ -17,7 +17,7 @@ const TILE = "relative flex aspect-[4/3] w-full flex-col items-center justify-ce
  * adds a file (owner and staff); a filled one opens it, where the owner can also replace
  * or remove it. Files are shown through signed links only.
  */
-export function FileTiles({ folder: loanId, slots, canAdd, canRemove }: { folder: string; slots: FileSlot[]; canAdd: boolean; canRemove: boolean }) {
+export function FileTiles({ folder: loanId, slots, canAdd, canRemove, onChanged }: { folder: string; slots: FileSlot[]; canAdd: boolean; canRemove: boolean; onChanged?: () => void }) {
   // null until the first read: a tile is not offered as empty before it is known to be
   const [files, setFiles] = useState<Record<string, LoanFile> | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export function FileTiles({ folder: loanId, slots, canAdd, canRemove }: { folder
       if (old.length) await removeLoanFiles(old).catch(() => {});
       setFiles(await read());
       toast(replacing ? `${slot.label} replaced` : `${slot.label} saved`);
+      onChanged?.();
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -77,6 +78,7 @@ export function FileTiles({ folder: loanId, slots, canAdd, canRemove }: { folder
       await removeLoanFiles(await loanFilePaths(loanId, slot.id));
       setFiles(await read());
       toast(`${slot.label} removed`);
+      onChanged?.();
     } catch (e) {
       toast(errorText(e), "error");
     } finally {

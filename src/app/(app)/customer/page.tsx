@@ -1,23 +1,27 @@
 "use client";
 
-import { FileText, HandCoins, IdCard, Image as ImageIcon, MapPin, Phone, Plus, Receipt, StickyNote, UserX } from "lucide-react";
+import { FileText, HandCoins, IdCard, Image as ImageIcon, MapPin, PencilLine, Phone, Plus, Receipt, StickyNote, UserX } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
+import { CustomerPhoto } from "@/components/customers/customer-photo";
 import { PageHeader } from "@/components/layout/page-header";
 import { useUI } from "@/components/layout/ui-context";
 import { LoanCard, SecurityIcon, securityLabel } from "@/components/loans/loan-card";
 import { FileTiles } from "@/components/security/security-files";
 import { Avatar, Card, Chip, EmptyState, Segmented, Skeleton } from "@/components/ui/bits";
 import { Button, buttonClass, LinkButton } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/form";
+import { Field, Input, Textarea } from "@/components/ui/form";
+import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { paymentTotal } from "@/lib/finance/engine";
 import { dLong, dShort, METHOD_LABEL, money, phoneFmt, todayISO } from "@/lib/format";
 import { customerView, permissions } from "@/lib/selectors";
+import { customerProblem } from "@/lib/customer-form";
 import { CUSTOMER_SLOTS } from "@/lib/files";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
 import { useSave } from "@/lib/use-save";
+import type { Customer } from "@/lib/types";
 
 export default function CustomerPage() {
   return (
@@ -36,6 +40,10 @@ function CustomerProfile() {
   const today = todayISO();
   const perm = permissions(s);
   const [tab, setTab] = useState<Tab>("loans");
+  const [editing, setEditing] = useState(false);
+  // the customer's photo is shown in two places (beside the name, and on the Docs tab): a change in one re-reads the other
+  const [faceRev, setFaceRev] = useState(0);
+  const [tilesRev, setTilesRev] = useState(0);
   useLoanHistory(s.loans.filter((l) => l.customerId === id).map((l) => l.id));
   const c = s.customers.find((x) => x.id === id);
 
@@ -64,8 +72,12 @@ function CustomerProfile() {
         <div className="space-y-4">
           <Card className="p-5">
             <div className="flex items-center gap-4">
-              <Avatar name={c.name} size="xl" />
-              <div className="min-w-0">
+              {LIVE ? (
+                <CustomerPhoto key={`${c.id}-${faceRev}`} customerId={c.id} name={c.name} canAdd={perm.role !== "collector"} canReplace={perm.role === "owner"} onChanged={() => setTilesRev((n) => n + 1)} />
+              ) : (
+                <Avatar name={c.name} size="xl" />
+              )}
+              <div className="min-w-0 flex-1">
                 <p className="truncate text-xl font-bold tracking-tight">{c.name}</p>
                 <p className="num mt-0.5 flex items-center gap-1.5 text-[15px] text-ink-2">
                   <Phone className="size-4 text-muted" /> {phoneFmt(c.phone)}
@@ -79,6 +91,11 @@ function CustomerProfile() {
               <Chip>ID {c.id}</Chip>
               <Chip>Since {dShort(c.createdAt)} {c.createdAt.slice(0, 4)}</Chip>
               {v.worst === "overdue" && <Chip tone="red" dot>Overdue {v.maxDaysLate} days</Chip>}
+              {perm.addCustomer && (
+                <button type="button" onClick={() => setEditing(true)} className="ml-auto inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[13px] font-semibold text-brand-700 hover:bg-brand-50">
+                  <PencilLine className="size-3.5" /> Edit
+                </button>
+              )}
             </div>
 
             <div className="mt-5 grid grid-cols-3 gap-2">
@@ -182,7 +199,7 @@ function CustomerProfile() {
                   </div>
                   {LIVE ? (
                     // owner and staff add photos, only the owner removes them (the storage rules enforce both)
-                    <FileTiles key={c.id} folder={c.id} slots={CUSTOMER_SLOTS} canAdd={perm.role !== "collector"} canRemove={perm.role === "owner"} />
+                    <FileTiles key={`${c.id}-${tilesRev}`} folder={c.id} slots={CUSTOMER_SLOTS} canAdd={perm.role !== "collector"} canRemove={perm.role === "owner"} onChanged={() => setFaceRev((n) => n + 1)} />
                   ) : (
                     <div className="mt-4 grid grid-cols-3 gap-2">
                       {CUSTOMER_SLOTS.map((t) => (
@@ -218,6 +235,8 @@ function CustomerProfile() {
           </div>
         </div>
       </div>
+
+      {editing && <EditCustomerSheet customer={c} onClose={() => setEditing(false)} />}
     </div>
   );
 }
@@ -228,6 +247,80 @@ function SummaryTile({ label, value, tone, strong }: { label: string; value: num
       <p className={`text-[13px] ${strong ? "text-brand-800/70" : "text-muted"}`}>{label}</p>
       <p className={`num mt-0.5 text-xl font-extrabold tracking-tight ${tone ?? (strong ? "text-brand-800" : "")}`}>{money(value)}</p>
     </div>
+  );
+}
+
+/** Change a customer's details. The database keeps the old and new values in the activity log. */
+function EditCustomerSheet({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+  const [f, setF] = useState({
+    name: customer.name,
+    phone: customer.phone ? phoneFmt(customer.phone) : "",
+    altPhone: customer.altPhone ? phoneFmt(customer.altPhone) : "",
+    area: customer.area === "—" ? "" : customer.area,
+    address: customer.address ?? "",
+    idRef: customer.idRef ?? "",
+  });
+  const [problem, setProblem] = useState<string | null>(null);
+  const { busy, run } = useSave();
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+
+  const save = async () => {
+    const p = customerProblem(f, customer);
+    setProblem(p);
+    if (p) return;
+    const patch = {
+      name: f.name.trim(),
+      phone: f.phone.replace(/\D/g, ""),
+      altPhone: f.altPhone.replace(/\D/g, "") || undefined,
+      area: f.area.trim() || "—",
+      address: f.address.trim() || undefined,
+      idRef: f.idRef.trim() || undefined,
+    };
+    if (!(await run(() => actions.updateCustomer(customer.id, patch).then(() => true)))) return;
+    toast("Customer updated");
+    onClose();
+  };
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title="Edit Customer"
+      subtitle={`Customer ${customer.id}`}
+      footer={
+        <Button size="lg" className="w-full" disabled={busy} onClick={save}>
+          {busy ? "Saving…" : "Save Changes"}
+        </Button>
+      }
+    >
+      <div className="space-y-4 pb-2">
+        <Field label="Full Name" required>
+          <Input value={f.name} onChange={set("name")} autoComplete="off" />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Mobile Number" required={!!customer.phone}>
+            <Input value={f.phone} onChange={set("phone")} inputMode="tel" />
+          </Field>
+          <Field label="Alternate Number">
+            <Input value={f.altPhone} onChange={set("altPhone")} inputMode="tel" placeholder="Optional" />
+          </Field>
+        </div>
+        <Field label="Area / Location">
+          <Input value={f.area} onChange={set("area")} />
+        </Field>
+        <Field label="Address">
+          <Textarea value={f.address} onChange={set("address")} className="min-h-20" />
+        </Field>
+        <Field label="ID Reference" hint="Aadhaar / Voter ID / PAN — last digits are enough">
+          <Input value={f.idRef} onChange={set("idRef")} />
+        </Field>
+        {problem && (
+          <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+            {problem}
+          </p>
+        )}
+      </div>
+    </Sheet>
   );
 }
 

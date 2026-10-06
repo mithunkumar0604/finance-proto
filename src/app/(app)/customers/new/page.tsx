@@ -18,6 +18,8 @@ export default function NewCustomerPage() {
   const [f, setF] = useState({ name: "", phone: "", altPhone: "", area: "", address: "", idRef: "", notes: "" });
   const [touched, setTouched] = useState(false);
   const [photo, setPhoto] = useState<File | undefined>();
+  const [photoSaved, setPhotoSaved] = useState(false);
+  const savedFace = useMemo(() => (photoSaved && photo && photo.type !== "application/pdf" ? URL.createObjectURL(photo) : null), [photoSaved, photo]);
   const { busy, run } = useSave();
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
 
@@ -47,7 +49,8 @@ export default function NewCustomerPage() {
       return { c, failed };
     });
     if (!done) return;
-    if (done.failed) toast("The customer is saved, but the photo could not be saved. Add it from the customer's page (Docs).", "error");
+    if (done.failed) toast("The customer is saved, but the photo could not be saved. Add it from the customer's page.", "error");
+    setPhotoSaved(!!photo && !done.failed);
     setSaved(done.c);
   };
 
@@ -56,7 +59,12 @@ export default function NewCustomerPage() {
       <div>
         <PageHeader title="Customer Saved" back={false} />
         <Card className="mx-auto max-w-lg p-6 text-center">
-          <Avatar name={saved.name} size="xl" className="mx-auto animate-pop" />
+          {savedFace ? (
+            // eslint-disable-next-line @next/next/no-img-element -- the photo just chosen on this device
+            <img src={savedFace} alt={`Photo of ${saved.name}`} className="mx-auto size-18 animate-pop rounded-full object-cover" />
+          ) : (
+            <Avatar name={saved.name} size="xl" className="mx-auto animate-pop" />
+          )}
           <p className="mt-4 text-xl font-bold">{saved.name}</p>
           <p className="num text-muted">
             {phoneFmt(saved.phone)} · {saved.area}
