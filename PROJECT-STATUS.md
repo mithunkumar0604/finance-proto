@@ -227,6 +227,7 @@ The design is unchanged. Additions, all small:
 - Customers can be edited (Edit on the customer's page: name, numbers, area, address, ID reference). The owner can delete a customer who has no loans at all (Edit → Delete Customer); one with any loan, even closed, cannot be deleted.
 - The owner sets the name shown for each login on the Users page (pencil beside the name).
 - Amounts in the activity list are written the Indian way (₹1,00,000).
+- Reports, Show "Paid": lists everyone who paid interest in the period, including a loan closed that day and a customer still behind, so its Interest Received equals the money received. Each line keeps its own status mark.
 - Uploaded photos are not in the nightly backup (it covers the database). Download the
   `documents` bucket from the Supabase dashboard from time to time.
 - Only the latest payment on a loan can be deleted; older ones after deleting the later ones.

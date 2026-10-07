@@ -226,7 +226,17 @@ export function registerReport(s: AppState, today: ISODate, range: DateRange, sh
     // A period wholly in the future lists only people with something still to pay.
     .filter((l) => mode !== "future" || l.upcoming > 0)
     .filter((l) =>
-      show === "all" ? true : show === "pending" ? l.pending > 0 && l.status !== "closed" : show === "upcoming" ? l.upcoming > 0 : l.status === show,
+      show === "all"
+        ? true
+        : show === "pending"
+          ? l.pending > 0 && l.status !== "closed"
+          : show === "upcoming"
+            ? l.upcoming > 0
+            : show === "paid"
+              ? // everyone who paid interest in the period, whatever their loan's state now (a loan settled
+                // that day, or one still behind), and everyone who is simply up to date
+                l.paid > 0 || l.status === "paid"
+              : l.status === show,
     )
     .sort((a, b) =>
       mode === "future" || show === "upcoming"
