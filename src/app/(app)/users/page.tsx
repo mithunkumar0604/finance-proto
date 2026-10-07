@@ -1,15 +1,19 @@
 "use client";
 
 import { clsx } from "clsx";
-import { Check, Eye, Minus, UserPlus } from "lucide-react";
+import { Check, Eye, Minus, PencilLine, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar, Card, Chip, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
+import { Field, Input } from "@/components/ui/form";
+import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { phoneFmt } from "@/lib/format";
 import { actions, LIVE, useAppState } from "@/lib/store";
-import type { Role } from "@/lib/types";
+import { useSave } from "@/lib/use-save";
+import type { AppUser, Role } from "@/lib/types";
 
 const ROLE_INFO: Record<Role["id"], { name: string; text: string; tone: "brand" | "indigo" | "slate" }> = {
   owner: { name: "Owner", text: "Sees everything — money, reports, all customers.", tone: "brand" },
@@ -31,6 +35,9 @@ const MATRIX: { label: string; owner: boolean; collector: boolean; staff: boolea
 export default function UsersPage() {
   const s = useAppState();
   const router = useRouter();
+  const [renaming, setRenaming] = useState<AppUser | null>(null);
+  // LIVE: the owner sets the name shown for each login (the database allows only the owner)
+  const canRename = LIVE && s.session.viewAs === "owner";
 
   const viewAs = (role: Role["id"]) => {
     actions.setViewAs(role);
@@ -62,6 +69,11 @@ export default function UsersPage() {
               </p>
             </div>
             <Chip tone={ROLE_INFO[u.role].tone}>{ROLE_INFO[u.role].name}</Chip>
+            {canRename && (
+              <button type="button" onClick={() => setRenaming(u)} aria-label={`Edit name of ${u.name}`} className="grid size-9 shrink-0 place-items-center rounded-full text-muted hover:bg-line-2">
+                <PencilLine className="size-4" />
+              </button>
+            )}
           </div>
         ))}
       </Card>
@@ -107,6 +119,47 @@ export default function UsersPage() {
         ))}
       </Card>
       {!LIVE && <p className="mt-3 px-1 text-xs text-muted">Concept only — detailed permissions will be finalised with you.</p>}
+      {renaming && <RenameSheet user={renaming} onClose={() => setRenaming(null)} />}
     </div>
+  );
+}
+
+/** The name shown in the app for a login (on More, in the activity list, on this page). */
+function RenameSheet({ user, onClose }: { user: AppUser; onClose: () => void }) {
+  const [name, setName] = useState(user.name);
+  const [problem, setProblem] = useState<string | null>(null);
+  const { busy, run } = useSave();
+  const save = async () => {
+    const clean = name.trim();
+    if (!clean) return setProblem("Enter a name.");
+    if (clean.length > 60) return setProblem("Keep the name under 60 letters.");
+    setProblem(null);
+    if (!(await run(() => actions.updateUser(user.id, { name: clean }).then(() => true)))) return;
+    toast("Name changed");
+    onClose();
+  };
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title="Name"
+      subtitle={`${ROLE_INFO[user.role].name} · ${phoneFmt(user.phone)}`}
+      footer={
+        <Button size="lg" className="w-full" disabled={busy} onClick={save}>
+          {busy ? "Saving…" : "Save"}
+        </Button>
+      }
+    >
+      <div className="space-y-3 pb-2">
+        <Field label="Name" hint="Shown in the app and beside every entry this person makes.">
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" maxLength={60} />
+        </Field>
+        {problem && (
+          <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+            {problem}
+          </p>
+        )}
+      </div>
+    </Sheet>
   );
 }

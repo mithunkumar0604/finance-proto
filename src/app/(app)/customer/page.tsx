@@ -1,7 +1,7 @@
 "use client";
 
-import { FileText, HandCoins, IdCard, Image as ImageIcon, MapPin, PencilLine, Phone, Plus, Receipt, StickyNote, UserX } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { FileText, HandCoins, IdCard, Image as ImageIcon, MapPin, PencilLine, Phone, Plus, Receipt, StickyNote, Trash2, UserX } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { CustomerPhoto } from "@/components/customers/customer-photo";
 import { PageHeader } from "@/components/layout/page-header";
@@ -236,7 +236,7 @@ function CustomerProfile() {
         </div>
       </div>
 
-      {editing && <EditCustomerSheet customer={c} onClose={() => setEditing(false)} />}
+      {editing && <EditCustomerSheet customer={c} canDelete={perm.role === "owner"} hasLoans={v.loans.length > 0} onClose={() => setEditing(false)} />}
     </div>
   );
 }
@@ -251,7 +251,9 @@ function SummaryTile({ label, value, tone, strong }: { label: string; value: num
 }
 
 /** Change a customer's details. The database keeps the old and new values in the activity log. */
-function EditCustomerSheet({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+function EditCustomerSheet({ customer, canDelete, hasLoans, onClose }: { customer: Customer; canDelete: boolean; hasLoans: boolean; onClose: () => void }) {
+  const router = useRouter();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [f, setF] = useState({
     name: customer.name,
     phone: customer.phone ? phoneFmt(customer.phone) : "",
@@ -281,6 +283,12 @@ function EditCustomerSheet({ customer, onClose }: { customer: Customer; onClose:
     onClose();
   };
 
+  const remove = async () => {
+    if (!(await run(() => actions.deleteCustomer(customer.id).then(() => true)))) return;
+    toast("Customer deleted");
+    router.replace("/customers/");
+  };
+
   return (
     <Sheet
       open
@@ -288,9 +296,20 @@ function EditCustomerSheet({ customer, onClose }: { customer: Customer; onClose:
       title="Edit Customer"
       subtitle={`Customer ${customer.id}`}
       footer={
-        <Button size="lg" className="w-full" disabled={busy} onClick={save}>
-          {busy ? "Saving…" : "Save Changes"}
-        </Button>
+        confirmDelete ? (
+          <div className="grid grid-cols-2 gap-2.5">
+            <Button size="lg" variant="secondary" disabled={busy} onClick={() => setConfirmDelete(false)}>
+              Keep
+            </Button>
+            <Button size="lg" variant="danger" disabled={busy} onClick={remove}>
+              {busy ? "Deleting…" : "Yes, Delete"}
+            </Button>
+          </div>
+        ) : (
+          <Button size="lg" className="w-full" disabled={busy} onClick={save}>
+            {busy ? "Saving…" : "Save Changes"}
+          </Button>
+        )
       }
     >
       <div className="space-y-4 pb-2">
@@ -319,6 +338,22 @@ function EditCustomerSheet({ customer, onClose }: { customer: Customer; onClose:
             {problem}
           </p>
         )}
+        {/* Only a customer with no loans at all can be deleted: nothing else points at them. */}
+        {canDelete &&
+          (confirmDelete ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+              Delete this customer? {customer.name} and their photos will be removed. This cannot be undone.
+            </p>
+          ) : hasLoans ? (
+            <p className="border-t border-line-2 pt-3 text-[13px] text-muted">This customer has loans, so it cannot be deleted.</p>
+          ) : (
+            <div className="border-t border-line-2 pt-3">
+              <button type="button" onClick={() => setConfirmDelete(true)} className="inline-flex items-center gap-1.5 text-sm font-semibold text-rose-700 underline underline-offset-2">
+                <Trash2 className="size-4" /> Delete Customer
+              </button>
+              <p className="mt-1 text-[13px] text-muted">For a wrong or duplicate entry. Possible because this customer has no loans.</p>
+            </div>
+          ))}
       </div>
     </Sheet>
   );

@@ -240,6 +240,18 @@ export async function updateCustomer(id: string, patch: Partial<Omit<Customer, "
   return customerFromRow(row);
 }
 
+/**
+ * Owner: delete a customer who has no loans (a wrong or duplicate entry). The customer's
+ * photos are removed first; the database then removes the customer and keeps a
+ * "Deleted customer …" entry with the details in the activity log.
+ */
+export async function deleteCustomer(id: string): Promise<void> {
+  const bucket = supabase().storage.from("documents");
+  const { data: files } = await bucket.list(id, { limit: 200 });
+  if (files?.length) await bucket.remove(files.map((f) => `${id}/${f.name}`));
+  await rpc<null>("delete_customer", { p_customer_id: id });
+}
+
 export async function createLoan(
   key: string,
   loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "interest" | "frequency" | "principalPerDue">,

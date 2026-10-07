@@ -497,6 +497,76 @@ describe("who can do what", () => {
   });
 });
 
+describe("amounts in the activity list", () => {
+  it("are written the Indian way: ₹1,00,000, not ₹100,000", async () => {
+    const text = async (p: number) => (await admin.rpc("rupee_text", { p })).data;
+    expect(await text(rupees(500))).toBe("₹500");
+    expect(await text(rupees(3000))).toBe("₹3,000");
+    expect(await text(rupees(23000))).toBe("₹23,000");
+    expect(await text(rupees(100000))).toBe("₹1,00,000");
+    expect(await text(rupees(1250000))).toBe("₹12,50,000");
+    expect(await text(rupees(12345678))).toBe("₹1,23,45,678");
+    expect(await text(rupees(1000) + 50)).toBe("₹1,000.50");
+    expect(await text(0)).toBe("₹0");
+
+    const { loanId } = await newLoan(rupees(250000));
+    const log = (await owner.db.from("activity").select("text").eq("loan_id", loanId).eq("kind", "loan").single()).data!;
+    expect(log.text).toContain("₹2,50,000 given to");
+  });
+});
+
+describe("deleting a customer", () => {
+  it("the owner can delete a customer who has no loans; the log keeps what was deleted", async () => {
+    const id = await addCustomer(owner.db, "Wrong Entry");
+    expect((await owner.db.from("customers").update({ area: "Somewhere" }).eq("id", id).select()).data).toHaveLength(1);
+    const res = await owner.db.rpc("delete_customer", { p_customer_id: id });
+    expect(res.error).toBeNull();
+    expect((await admin.from("customers").select("id").eq("id", id)).data).toEqual([]);
+    // the newest entry says who was deleted, and carries the details
+    const last = (await owner.db.from("activity").select("text,by_name,data,customer_id").order("id", { ascending: false }).limit(1).single()).data!;
+    expect(last.text).toBe(`Deleted customer Wrong Entry (${id})`);
+    expect(last.by_name).toBe("Test Owner");
+    expect(last.customer_id).toBeNull();
+    expect(last.data.customer).toMatchObject({ id, name: "Wrong Entry", phone: "9000000000", area: "Somewhere" });
+    // earlier entries about that customer are still there, no longer pointing at a customer
+    const earlier = (await admin.from("activity").select("text,customer_id").in("text", ["Added customer Wrong Entry", "Edited customer Wrong Entry"])).data!;
+    expect(earlier.length).toBeGreaterThanOrEqual(2);
+    expect(earlier.every((a) => a.customer_id !== id)).toBe(true);
+    // a second try says it is gone
+    expect(codeOf(await owner.db.rpc("delete_customer", { p_customer_id: id }))).toBe("NOT_FOUND");
+  });
+
+  it("a customer with a loan cannot be deleted, not even a closed one", async () => {
+    const { customerId, loanId } = await newLoan();
+    expect(codeOf(await owner.db.rpc("delete_customer", { p_customer_id: customerId }))).toBe("HAS_LOANS");
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: rupees(100000), other: 0 });
+    expect(paid.error).toBeNull();
+    expect((await readLoan(owner.db, loanId)).loan.status).toBe("closed");
+    expect(codeOf(await owner.db.rpc("delete_customer", { p_customer_id: customerId }))).toBe("HAS_LOANS");
+    expect((await admin.from("customers").select("id").eq("id", customerId)).data).toHaveLength(1);
+  });
+
+  it("only the owner can delete, and never by writing to the table", async () => {
+    const id = await addCustomer(owner.db, "Keep Me", collector.id);
+    expect(codeOf(await staff.db.rpc("delete_customer", { p_customer_id: id }))).toBe("NOT_ALLOWED");
+    expect(codeOf(await collector.db.rpc("delete_customer", { p_customer_id: id }))).toBe("NOT_ALLOWED");
+    expect((await anon.rpc("delete_customer", { p_customer_id: id })).error).not.toBeNull();
+    await owner.db.from("customers").delete().eq("id", id);
+    await staff.db.from("customers").delete().eq("id", id);
+    expect((await admin.from("customers").select("id").eq("id", id)).data).toHaveLength(1);
+  });
+
+  it("the activity log stays locked: only its link to a deleted customer may be cleared", async () => {
+    const id = await addCustomer(owner.db, "Log Check");
+    const other = await addCustomer(owner.db, "Other Person");
+    const row = (await admin.from("activity").select("id").eq("customer_id", id).limit(1).single()).data!;
+    expect((await admin.from("activity").update({ text: "changed" }).eq("id", row.id)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("activity").update({ customer_id: other }).eq("id", row.id)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("activity").update({ customer_id: null, by_name: "Someone" }).eq("id", row.id)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("activity").delete().eq("id", row.id)).error?.message).toMatch(/HISTORY_LOCKED/);
+  });
+});
+
 describe("private documents", () => {
   const png = new Blob([Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10])], { type: "image/png" });
 

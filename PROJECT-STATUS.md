@@ -224,7 +224,9 @@ The design is unchanged. Additions, all small:
 ## Known gaps and follow-ups
 
 - A customer's photo is the round picture beside the name on the customer's page (and a tile on the Docs tab). Lists still show initials.
-- Customers can be edited (Edit on the customer's page: name, numbers, area, address, ID reference). They cannot be deleted.
+- Customers can be edited (Edit on the customer's page: name, numbers, area, address, ID reference). The owner can delete a customer who has no loans at all (Edit → Delete Customer); one with any loan, even closed, cannot be deleted.
+- The owner sets the name shown for each login on the Users page (pencil beside the name).
+- Amounts in the activity list are written the Indian way (₹1,00,000).
 - Uploaded photos are not in the nightly backup (it covers the database). Download the
   `documents` bucket from the Supabase dashboard from time to time.
 - Only the latest payment on a loan can be deleted; older ones after deleting the later ones.

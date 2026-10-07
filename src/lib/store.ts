@@ -390,6 +390,20 @@ export const actions = {
     set((s) => ({ ...s, customers: s.customers.map((c) => (c.id === id ? { ...c, ...patch } : c)) }));
   },
 
+  /** Owner: delete a customer who has no loans. Throws AppError with words to show. */
+  async deleteCustomer(id: string): Promise<void> {
+    const s0 = getState();
+    if (s0.loans.some((l) => l.customerId === id)) throw new AppError("HAS_LOANS", "This customer has loans, so it cannot be deleted.");
+    if (LIVE) {
+      if (s0.session.viewAs !== "owner") throw new AppError("NOT_ALLOWED", "Only the owner can delete a customer.");
+      await remote.deleteCustomer(id);
+      set((s) => ({ ...s, customers: s.customers.filter((c) => c.id !== id) }));
+      refreshActivity();
+      return;
+    }
+    set((s) => ({ ...s, customers: s.customers.filter((c) => c.id !== id), activity: log(s, `Deleted customer ${s.customers.find((c) => c.id === id)?.name ?? ""} (${id})`, "customer") }));
+  },
+
   /** Give a new loan. `key` identifies this one press of Create Loan (see receivePayment). */
   async createLoan(data: Omit<Loan, "id" | "principalLeft" | "status">, key: string): Promise<Loan> {
     const draft: Loan = { ...data, id: "", principalLeft: data.amount, status: "active" };

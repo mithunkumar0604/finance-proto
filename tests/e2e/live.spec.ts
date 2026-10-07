@@ -587,6 +587,75 @@ test("a customer's details can be edited after saving", async ({ page }) => {
   await expectClean(page, "customer after edit");
 });
 
+test("the owner can delete a customer who has no loans, but not one who has", async ({ page }) => {
+  const name = `Delete Person ${Date.now() % 100000}`;
+  const { data: made } = await admin.from("customers").insert({ name, phone: "9000044444", area: "Nowhere" }).select("id").single();
+  await admin.storage.from("documents").upload(`${made!.id}/photo-${Date.now()}.png`, PNG, { contentType: "image/png" });
+  await signInOwner(page);
+
+  // a customer with loans: Edit offers no delete, and says why
+  await page.goto("/customer/?id=C001");
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("dialog")).toContainText("has loans, so it cannot be deleted");
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Delete Customer/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // a customer with no loans
+  await page.goto(`/customer/?id=${made!.id}`);
+  await page.getByRole("button", { name: "Edit" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByRole("button", { name: "Delete Customer" }).click();
+  await expect(sheet).toContainText("Delete this customer?");
+  await page.screenshot({ path: "test-results/delete-customer.png" });
+  // Keep changes nothing
+  await sheet.getByRole("button", { name: "Keep" }).click();
+  expect((await admin.from("customers").select("id").eq("id", made!.id)).data).toHaveLength(1);
+  await sheet.getByRole("button", { name: "Delete Customer" }).click();
+  await sheet.getByRole("button", { name: "Yes, Delete" }).click();
+  await expect(page.getByText("Customer deleted")).toBeVisible();
+  await page.waitForURL(/customers\/$/);
+  await expect(page.locator("main")).not.toContainText(name);
+  expect((await admin.from("customers").select("id").eq("id", made!.id)).data).toEqual([]);
+  // the photo went with the customer
+  expect(await filesOf(made!.id)).toEqual([]);
+  await page.goto("/activity/");
+  await expect(page.locator("main")).toContainText(`Deleted customer ${name} (${made!.id})`);
+});
+
+test("the owner can change the name shown for a login", async ({ page }) => {
+  await signInOwner(page);
+  await page.goto("/users/");
+  await page.getByRole("button", { name: "Edit name of Deepa" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByLabel("Name").fill("  ");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("Enter a name");
+  await sheet.getByLabel("Name").fill("Deepa Lakshmi");
+  await sheet.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Name changed")).toBeVisible();
+  await expect(page.locator("main")).toContainText("Deepa Lakshmi");
+  expect((await admin.from("profiles").select("name").eq("phone", "9800045678").single()).data!.name).toBe("Deepa Lakshmi");
+  // the owner's own name shows on More
+  await page.getByRole("button", { name: "Edit name of Rajendran" }).click();
+  await page.getByRole("dialog").getByLabel("Name").fill("Rajendran K");
+  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Name changed")).toBeVisible();
+  await page.goto("/more/");
+  await expect(page.locator("main")).toContainText("Rajendran K");
+  await admin.from("profiles").update({ name: "Rajendran" }).eq("phone", "9800012345");
+  await admin.from("profiles").update({ name: "Deepa" }).eq("phone", "9800045678");
+});
+
+test("staff cannot rename logins or delete a customer", async ({ page }) => {
+  const { data: made } = await admin.from("customers").insert({ name: `Staff View ${Date.now() % 100000}`, phone: "9000055555", area: "Nowhere" }).select("id").single();
+  await signIn(page, "98000 45678");
+  await page.waitForURL(/home/);
+  await page.goto(`/customer/?id=${made!.id}`);
+  await page.getByRole("button", { name: "Edit" }).click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Edit Customer" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Delete Customer/ })).toHaveCount(0);
+});
+
 test("a collector cannot edit a customer or change the photo", async ({ page }) => {
   await signIn(page, COLLECTOR);
   await page.waitForURL(/home/);
