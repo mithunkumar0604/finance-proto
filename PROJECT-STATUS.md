@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 6 October 2026.
+Last updated: 8 October 2026.
 
 ## Where things stand
 
@@ -213,6 +213,7 @@ The design is unchanged. Additions, all small:
 - the three photo tiles of a security open, add, replace and remove real files; the
   photo boxes in New Loan show the chosen file's name;
 - a "Security" section in Settings with "Change Password";
+- New Loan no longer asks "Collection Frequency" again after Weekly / Monthly / 15 Days / 30 Days was picked: it says "Collected every week" with a Change link. Vehicle, Jewel and Custom are asked "How often will you collect?";
 - **Receive Payment**: when more than one period is pending, a "Pending Interest"
   list with a tick box per period and a total; a "− Waive interest" choice under
   Adjustment (owner only); the Notes box becomes "Reason for waiving" when waiving;

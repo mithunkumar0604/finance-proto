@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deletablePayment, deleteReason } from "./delete-payment";
 import { CUSTOMER_SLOTS, fileProblem, filePath, fileType, latestPerSlot, MAX_FILE_BYTES, slotsFor } from "./files";
 import { customerProblem } from "./customer-form";
+import { collectedEvery, typeSetsFrequency } from "./loan-form";
 import { passwordProblem } from "./password";
 import type { Payment } from "./types";
 
@@ -85,6 +86,28 @@ describe("photo and document files", () => {
     expect(slotsFor("other").map((s) => s.label)).toEqual(["Page 1", "Page 2", "Receipt"]);
     // tile ids are used in file names: letters and digits only
     for (const kind of ["vehicle", "jewel", "document", "other"] as const) for (const s of slotsFor(kind)) expect(s.id).toMatch(/^[a-z0-9]+$/);
+  });
+});
+
+describe("new loan: how often to collect", () => {
+  it("Weekly, Monthly, 15 Days and 30 Days already say how often", () => {
+    expect(typeSetsFrequency("weekly")).toBe(true);
+    expect(typeSetsFrequency("monthly")).toBe(true);
+    expect(typeSetsFrequency("15day")).toBe(true);
+    expect(typeSetsFrequency("30day")).toBe(true);
+  });
+  it("Vehicle, Jewel and Custom say what is held, not how often: the question is asked", () => {
+    expect(typeSetsFrequency("vehicle")).toBe(false);
+    expect(typeSetsFrequency("jewel")).toBe(false);
+    expect(typeSetsFrequency("custom")).toBe(false);
+    expect(typeSetsFrequency(null)).toBe(false);
+  });
+  it("says it in words", () => {
+    expect(collectedEvery("weekly")).toBe("Collected every week");
+    expect(collectedEvery("monthly")).toBe("Collected every month");
+    expect(collectedEvery("15days")).toBe("Collected every 15 days");
+    expect(collectedEvery("30days")).toBe("Collected every 30 days");
+    expect(collectedEvery("custom")).toBe("Collected on dates you set");
   });
 });
 

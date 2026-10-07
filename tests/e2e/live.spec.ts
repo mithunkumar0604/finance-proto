@@ -491,6 +491,59 @@ test("a customer's photo is saved with the new customer, and ID photos are added
   await page.screenshot({ path: "test-results/customer-photo-header.png" });
 });
 
+test("New Loan asks how often to collect only when the kind of loan does not already say", async ({ page }) => {
+  await signInOwner(page);
+  const toInterestStep = async (kind: string) => {
+    await page.goto("/loans/new/?customer=C001");
+    await page.locator("input[inputmode=numeric]").first().fill("100000");
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByText(kind).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(page.getByRole("heading", { name: "Interest & collection" })).toBeVisible();
+  };
+
+  // Weekly was already chosen: it is stated, not asked again
+  await toInterestStep("Collect every week");
+  await expect(page.locator("main")).toContainText("Collected every week");
+  await expect(page.locator("main")).not.toContainText("Collection Frequency");
+  await expect(page.locator("main")).not.toContainText("How often will you collect?");
+  await expect(page.getByRole("button", { name: "15 Days", exact: true })).toHaveCount(0);
+  await expectClean(page, "new loan, weekly");
+  await page.screenshot({ path: "test-results/new-loan-weekly.png", fullPage: true });
+
+  // the rare case: it can still be changed, and the loan follows the change
+  await page.getByRole("button", { name: "Change" }).click();
+  await expect(page.locator("main")).toContainText("How often will you collect?");
+  await page.getByRole("button", { name: "15 Days", exact: true }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  const changed = await loanRow(new URL(page.url()).searchParams.get("id")!);
+  expect(changed).toMatchObject({ type: "weekly", frequency: "15days", amount: 10000000 });
+
+  // Monthly: the same, in its own words
+  await toInterestStep("Interest every month");
+  await expect(page.locator("main")).toContainText("Collected every month");
+  await expect(page.locator("main")).not.toContainText("How often will you collect?");
+
+  // Vehicle says what is held, not how often: here the question is asked, with Monthly picked to start with
+  await toInterestStep("Vehicle as security");
+  await expect(page.locator("main")).toContainText("How often will you collect?");
+  await expect(page.locator("main")).not.toContainText("Collected every");
+  await expect(page.getByRole("button", { name: "Weekly", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Weekly", exact: true }).click();
+  await page.screenshot({ path: "test-results/new-loan-vehicle.png", fullPage: true });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByPlaceholder("TN 33 AB 1234").fill("TN 00 FQ 0001");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  expect(await loanRow(new URL(page.url()).searchParams.get("id")!)).toMatchObject({ type: "vehicle", frequency: "weekly" });
+});
+
 test("a customer's details can be edited after saving", async ({ page }) => {
   const name = `Edit Person ${Date.now() % 100000}`;
   const { data: made } = await admin.from("customers").insert({ name, phone: "9000011111", area: "Old Area" }).select("id").single();

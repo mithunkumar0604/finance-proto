@@ -31,6 +31,7 @@ import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components
 import { toast } from "@/components/ui/toast";
 import { slotsFor } from "@/lib/files";
 import { loanDefaults, previewFirstCollection } from "@/lib/finance/engine";
+import { collectedEvery, typeSetsFrequency } from "@/lib/loan-form";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
 import { actions, LIVE, newKey, useAppState } from "@/lib/store";
@@ -72,6 +73,8 @@ function Wizard() {
   const [reference, setReference] = useState("");
   const [type, setType] = useState<LoanType>();
   const [frequency, setFrequency] = useState<Frequency>("monthly");
+  // Weekly / Monthly / 15 Days / 30 Days already say how often: it is asked only if the user taps Change.
+  const [askFrequency, setAskFrequency] = useState(false);
   const [interest, setInterest] = useState<InterestSetting>({ style: "percent", value: 3, method: "reducing" });
   const [principalPerDue, setPrincipalPerDue] = useState<number | "">("");
   const [secKind, setSecKind] = useState<SecurityKind>("none");
@@ -86,6 +89,7 @@ function Wizard() {
 
   const pickType = (t: LoanType, forAmount = amount) => {
     setType(t);
+    if (t !== type) setAskFrequency(false);
     const d = loanDefaults(t, forAmount || 0);
     setFrequency(d.frequency);
     setInterest(d.interest);
@@ -267,14 +271,25 @@ function Wizard() {
                 <MoneyInput value={interest.value || ""} onChange={(v) => setInterest({ ...interest, value: v || 0 })} />
               )}
             </Field>
-            <Field label="Collection Frequency" group>
-              <OptionGrid
-                cols={3}
-                value={frequency}
-                onChange={setFrequency}
-                options={(["weekly", "monthly", "15days", "30days", "custom"] as Frequency[]).map((f) => ({ value: f, label: FREQ_LABEL[f].replace("Every ", "") }))}
-              />
-            </Field>
+            {typeSetsFrequency(type) && !askFrequency ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-line-2/80 px-4 py-3">
+                <p className="flex items-center gap-2 text-[15px] font-semibold text-ink-2">
+                  <Calendar className="size-4.5 text-muted" /> {collectedEvery(frequency)}
+                </p>
+                <button type="button" onClick={() => setAskFrequency(true)} className="text-sm font-semibold text-brand-700 underline underline-offset-2">
+                  Change
+                </button>
+              </div>
+            ) : (
+              <Field label="How often will you collect?" group>
+                <OptionGrid
+                  cols={3}
+                  value={frequency}
+                  onChange={setFrequency}
+                  options={(["weekly", "monthly", "15days", "30days", "custom"] as Frequency[]).map((f) => ({ value: f, label: FREQ_LABEL[f].replace("Every ", "") }))}
+                />
+              </Field>
+            )}
             <Field label="Interest Calculation" group>
               <OptionGrid
                 cols={3}
