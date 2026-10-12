@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { deletablePayment, deleteReason } from "./delete-payment";
 import { CUSTOMER_SLOTS, fileProblem, filePath, fileType, latestPerSlot, MAX_FILE_BYTES, slotsFor } from "./files";
 import { customerProblem } from "./customer-form";
-import { collectedEvery, typeSetsFrequency } from "./loan-form";
+import { loanDefaults } from "./finance/engine";
+import { collectedEvery, interestProblem, safePreview, switchInterestStyle, typeSetsFrequency } from "./loan-form";
 import { passwordProblem } from "./password";
 import type { Payment } from "./types";
 
@@ -108,6 +109,49 @@ describe("new loan: how often to collect", () => {
     expect(collectedEvery("15days")).toBe("Collected every 15 days");
     expect(collectedEvery("30days")).toBe("Collected every 30 days");
     expect(collectedEvery("custom")).toBe("Collected on dates you set");
+  });
+});
+
+describe("new loan: switching between a percentage and a fixed amount", () => {
+  const weekly = loanDefaults("weekly", 10000000); // fixed ₹2,500
+  const monthly = loanDefaults("monthly", 10000000); // 3 %
+
+  it("the rupee figure is never carried over as a percentage (it crashed the screen)", () => {
+    expect(weekly.interest).toMatchObject({ style: "fixed", value: 250000 });
+    const next = switchInterestStyle(weekly.interest, "percent", weekly.interest);
+    expect(next).toMatchObject({ style: "percent", value: 0 });
+  });
+
+  it("a percentage is never carried over as a rupee figure", () => {
+    expect(switchInterestStyle(monthly.interest, "fixed", monthly.interest)).toMatchObject({ style: "fixed", value: 0, method: "fixed" });
+  });
+
+  it("going back to the kind of loan's own style brings its usual figure back", () => {
+    const pct = switchInterestStyle(weekly.interest, "percent", weekly.interest);
+    expect(switchInterestStyle(pct, "fixed", weekly.interest)).toMatchObject({ style: "fixed", value: 250000 });
+    const fixed = switchInterestStyle(monthly.interest, "fixed", monthly.interest);
+    expect(switchInterestStyle(fixed, "percent", monthly.interest)).toMatchObject({ style: "percent", value: 3 });
+  });
+
+  it("tapping the style already chosen changes nothing", () => {
+    const typed = { ...monthly.interest, value: 2.5 };
+    expect(switchInterestStyle(typed, "percent", monthly.interest)).toEqual(typed);
+  });
+
+  it("says what is wrong with an interest figure instead of breaking", () => {
+    expect(interestProblem({ style: "percent", value: 3, method: "reducing" })).toBeNull();
+    expect(interestProblem({ style: "percent", value: 100, method: "reducing" })).toBeNull();
+    expect(interestProblem({ style: "percent", value: 150, method: "reducing" })).toMatch(/more than 100%/);
+    expect(interestProblem({ style: "percent", value: 250000, method: "fixed" })).toMatch(/more than 100%/);
+    expect(interestProblem({ style: "fixed", value: 250000, method: "fixed" })).toBeNull();
+    expect(interestProblem({ style: "fixed", value: 0, method: "fixed" })).toBeNull();
+  });
+
+  it("the first-collection preview never throws, whatever is typed", () => {
+    const base = { amount: 10000000, principalLeft: 10000000, principalPerDue: 0, frequency: "weekly" as const, startDate: "2026-10-12" };
+    expect(safePreview({ ...base, interest: { style: "percent", value: 250000, method: "fixed" } })).toMatchObject({ interest: 0, principal: 0 });
+    expect(safePreview({ ...base, interest: { style: "percent", value: 3, method: "fixed" } })).toMatchObject({ interest: 300000 });
+    expect(safePreview({ ...base, interest: { style: "fixed", value: 2.5, method: "fixed" } })).toMatchObject({ interest: 0 });
   });
 });
 

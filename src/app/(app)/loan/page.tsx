@@ -18,6 +18,7 @@ import { toast } from "@/components/ui/toast";
 import { DEFAULT_DELETE_REASON, deletablePayment, deleteReason } from "@/lib/delete-payment";
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
+import { interestProblem, switchInterestStyle } from "@/lib/loan-form";
 import { loanView, permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
@@ -251,6 +252,7 @@ function DeletePaymentSheet({ payment, onClose }: { payment: Payment; onClose: (
 function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
   const [interest, setInterest] = useState<InterestSetting>(loan.interest);
   const [reference, setReference] = useState(loan.reference ?? "");
+  const [problem, setProblem] = useState<string | null>(null);
   const { busy, run } = useSave();
   return (
     <Sheet
@@ -264,6 +266,9 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           className="w-full"
           disabled={busy}
           onClick={async () => {
+            const p = interestProblem(interest) ?? (interest.style !== "custom" && !(interest.value > 0) && !(loan.principalPerDue > 0) ? "Enter the interest." : null);
+            setProblem(p);
+            if (p) return;
             if (!(await run(() => actions.updateLoan(loan.id, { interest, reference: reference || undefined }).then(() => true)))) return;
             toast("Loan updated");
             onClose();
@@ -278,7 +283,7 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           <OptionGrid
             cols={3}
             value={interest.style}
-            onChange={(style) => setInterest({ ...interest, style })}
+            onChange={(style) => setInterest(switchInterestStyle(interest, style, loan.interest))}
             options={[
               { value: "percent", label: "Percentage" },
               { value: "fixed", label: "Fixed ₹" },
@@ -304,6 +309,11 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
         <Field label="Reference (optional)">
           <Input value={reference} onChange={(e) => setReference(e.target.value)} />
         </Field>
+        {problem && (
+          <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+            {problem}
+          </p>
+        )}
       </div>
     </Sheet>
   );

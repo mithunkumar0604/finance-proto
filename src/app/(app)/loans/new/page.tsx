@@ -30,8 +30,8 @@ import { Button, LinkButton } from "@/components/ui/button";
 import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
 import { toast } from "@/components/ui/toast";
 import { slotsFor } from "@/lib/files";
-import { loanDefaults, previewFirstCollection } from "@/lib/finance/engine";
-import { collectedEvery, typeSetsFrequency } from "@/lib/loan-form";
+import { loanDefaults } from "@/lib/finance/engine";
+import { collectedEvery, interestProblem, safePreview, switchInterestStyle, typeSetsFrequency } from "@/lib/loan-form";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
 import { actions, LIVE, newKey, useAppState } from "@/lib/store";
@@ -104,7 +104,8 @@ function Wizard() {
     if (type) pickType(type, a);
   };
 
-  const canNext = [!!customer, !!customer && !!amount && amount > 0, !!type, interest.value > 0 || (principalPerDue || 0) > 0, true, true][step];
+  const interestWrong = interestProblem(interest);
+  const canNext = [!!customer, !!customer && !!amount && amount > 0, !!type, !interestWrong && (interest.value > 0 || (principalPerDue || 0) > 0), true, true][step];
 
   const draft = {
     customerId: customerId!,
@@ -117,7 +118,8 @@ function Wizard() {
     principalPerDue: principalPerDue || 0,
     security: customer ? buildSecurity(secKind, sec, customer.name) : null,
   };
-  const preview = previewFirstCollection({ ...draft, principalLeft: draft.amount });
+  // never throws: a figure that cannot be used yet shows as zero and is explained beside the box
+  const preview = safePreview({ ...draft, principalLeft: draft.amount });
 
   const create = async () => {
     // One "save": the loan first, then its photos. If a photo fails the loan stays, and the
@@ -256,7 +258,7 @@ function Wizard() {
               <OptionGrid
                 cols={3}
                 value={interest.style}
-                onChange={(style) => setInterest({ ...interest, style, method: style === "fixed" ? "fixed" : interest.method })}
+                onChange={(style) => setInterest(switchInterestStyle(interest, style, loanDefaults(type ?? "monthly", amount || 0).interest))}
                 options={[
                   { value: "percent", label: "Percentage", sub: "e.g. 3%" },
                   { value: "fixed", label: "Fixed Amount", sub: "e.g. ₹2,000" },
@@ -271,6 +273,11 @@ function Wizard() {
                 <MoneyInput value={interest.value || ""} onChange={(v) => setInterest({ ...interest, value: v || 0 })} />
               )}
             </Field>
+            {interestWrong && (
+              <p role="alert" className="-mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+                {interestWrong}
+              </p>
+            )}
             {typeSetsFrequency(type) && !askFrequency ? (
               <div className="flex items-center justify-between gap-3 rounded-2xl bg-line-2/80 px-4 py-3">
                 <p className="flex items-center gap-2 text-[15px] font-semibold text-ink-2">

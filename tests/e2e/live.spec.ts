@@ -491,6 +491,67 @@ test("a customer's photo is saved with the new customer, and ID photos are added
   await page.screenshot({ path: "test-results/customer-photo-header.png" });
 });
 
+test("New Loan: Weekly, then tapping Percentage, does not break the screen", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await signInOwner(page);
+  await page.goto("/loans/new/?customer=C001");
+  await page.locator("input[inputmode=numeric]").first().fill("100000");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("Collect every week").click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("heading", { name: "Interest & collection" })).toBeVisible();
+
+  // Weekly starts with a fixed ₹2,500. Tapping Percentage used to turn that into 2,50,000 % and crash.
+  await page.getByRole("button", { name: /^Percentage/ }).click();
+  await expect(page.getByRole("heading", { name: "Interest & collection" })).toBeVisible();
+  const pct = page.locator("input[inputmode=decimal]");
+  await expect(pct).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+  // a normal percentage: the first collection shows 3% of ₹1,00,000
+  await pct.fill("3");
+  await expect(page.locator("main")).toContainText("Interest ₹3,000");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+
+  // a wrong figure is explained, not a crash
+  await pct.fill("150");
+  await expect(page.getByRole("alert").filter({ hasText: "more than 100%" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+  await expect(page.getByRole("heading", { name: "Interest & collection" })).toBeVisible();
+
+  // back to Fixed Amount: the weekly ₹2,500 is offered again; and Custom does not break either
+  await page.getByRole("button", { name: /^Fixed Amount/ }).click();
+  await expect(page.locator("main")).toContainText("Interest ₹2,500");
+  await page.getByRole("button", { name: "Custom Set later" }).click();
+  await expect(page.getByRole("heading", { name: "Interest & collection" })).toBeVisible();
+  await page.getByRole("button", { name: /^Percentage/ }).click();
+  await pct.fill("2.5");
+  await expectClean(page, "new loan, percentage");
+
+  // and the loan saves with the percentage
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  expect(await loanRow(new URL(page.url()).searchParams.get("id")!)).toMatchObject({ type: "weekly", interest_style: "percent", interest_value: 2.5, amount: 10000000 });
+  expect(errors).toEqual([]);
+
+  // Edit Loan has the same switch: it must not carry the figure over either
+  await page.getByRole("button", { name: "Edit Loan" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByRole("button", { name: /^Fixed/ }).first().click();
+  await expect(sheet.locator("input[inputmode=decimal]")).toHaveValue("");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("Enter the interest");
+  await sheet.getByRole("button", { name: /^Percentage/ }).click();
+  await sheet.locator("input[inputmode=decimal]").fill("400");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("more than 100%");
+  expect(errors).toEqual([]);
+});
+
 test("New Loan asks how often to collect only when the kind of loan does not already say", async ({ page }) => {
   await signInOwner(page);
   const toInterestStep = async (kind: string) => {
