@@ -82,6 +82,7 @@ export const FREQ_LABEL: Record<Frequency, string> = {
   "30days": "Every 30 Days",
   monthly: "Monthly",
   custom: "Custom",
+  once: "One time",
 };
 
 export const METHOD_LABEL: Record<PaymentMethod, string> = {
@@ -98,8 +99,10 @@ export function initials(name: string): string {
 
 /** "3% Monthly · on balance", "₹500 per week" */
 export function interestLabel(loan: Pick<Loan, "interest" | "frequency">): string {
-  const per = { weekly: "week", "15days": "15 days", "30days": "30 days", monthly: "month", custom: "period" }[loan.frequency];
+  const per = { weekly: "week", "15days": "15 days", "30days": "30 days", monthly: "month", custom: "period", once: "loan" }[loan.frequency];
   const { style, value, method } = loan.interest;
+  // a one-time loan: the interest is for the whole loan, taken once
+  if (loan.frequency === "once") return style === "percent" ? `${value}% for the whole loan` : value > 0 ? `${money(value)} for the whole loan` : "No interest";
   if (style === "percent")
     return `${value}% ${loan.frequency === "monthly" ? "Monthly" : `per ${per}`}${method === "reducing" ? " · on balance" : method === "fixed" ? " · flat" : ""}`;
   if (style === "fixed") return `${money(value)} per ${per}`;

@@ -277,7 +277,7 @@ export function buildDemoDB(today: ISODate): DemoDB {
 
   // The next collection is never more than one period away (otherwise the history
   // built below would contain payments dated in the future).
-  const PERIOD_DAYS = { weekly: 7, "15days": 15, "30days": 30, monthly: 28, custom: 30 } as const;
+  const PERIOD_DAYS = { weekly: 7, "15days": 15, "30days": 30, monthly: 28, custom: 30, once: 30 } as const;
 
   for (const spec of loanSpecs) {
     const s: LoanSpec = {

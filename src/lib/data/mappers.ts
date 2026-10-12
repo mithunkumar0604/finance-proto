@@ -73,6 +73,7 @@ export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPai
     ...(r.referred_by ? { referredBy: r.referred_by } : {}),
     interest: { style: r.interest_style, value: Number(r.interest_value), method: r.interest_method },
     frequency: r.frequency,
+    ...(r.return_date ? { returnDate: r.return_date } : {}),
     principalPerDue: Number(r.principal_per_due),
     principalLeft: Number(r.principal_left),
     status: r.status,
@@ -84,7 +85,9 @@ export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPai
   };
 }
 
-export function loanToRow(l: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "principalPerDue">): Row {
+export function loanToRow(
+  l: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "returnDate" | "principalPerDue">,
+): Row {
   return {
     customer_id: l.customerId,
     type: l.type,
@@ -97,6 +100,7 @@ export function loanToRow(l: Pick<Loan, "customerId" | "type" | "amount" | "star
     interest_value: l.interest.value,
     interest_method: l.interest.method,
     frequency: l.frequency,
+    return_date: l.frequency === "once" ? (l.returnDate ?? null) : null,
     principal_per_due: l.principalPerDue,
   };
 }

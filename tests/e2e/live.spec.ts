@@ -714,6 +714,89 @@ test("a report downloads as a real Excel file laid out like the business's ledge
   await admin.from("loans").update({ import_ref: null, referred_by: null }).eq("id", "LP-1024");
 });
 
+test("Custom is a one-time loan: the owner picks the return date, it is collected once, and nothing is added when the date passes", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await signInOwner(page);
+  await page.goto("/loans/new/?customer=C001");
+  await page.locator("input[inputmode=numeric]").first().fill("20000");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("One time · you set the return date").click();
+  await page.getByRole("button", { name: "Continue" }).click();
+
+  // a return date is asked for; nothing is assumed (it used to be 30 days, silently)
+  await expect(page.getByRole("heading", { name: "Return date & interest" })).toBeVisible();
+  await expect(page.locator("main")).not.toContainText("How often will you collect?");
+  await expect(page.locator("main")).not.toContainText("Interest Calculation");
+  await expect(page.getByLabel("Return Date")).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+
+  // 5 days by a quick button, then any date by the picker: 18 days
+  await page.getByRole("button", { name: "5 days", exact: true }).click();
+  await expect(page.getByLabel("Return Date")).toHaveValue(shift(TODAY, 5));
+  await page.getByLabel("Return Date").fill(shift(TODAY, 18));
+  await expect(page.locator("main")).toContainText("18 days after the loan is given");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+  // a date that is not after the loan date is refused
+  await page.getByLabel("Return Date").fill(TODAY);
+  await expect(page.locator("main")).toContainText("The return date must be after the day the loan is given");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+  await page.getByLabel("Return Date").fill(shift(TODAY, 18));
+
+  // interest for the whole loan: what is to be returned is the amount plus that interest, once
+  await page.locator("input[inputmode=numeric]").first().fill("500");
+  await expect(page.locator("main")).toContainText("To be returned");
+  await expect(page.locator("main")).toContainText("Interest ₹500");
+  await expect(page.locator("main")).toContainText("Principal ₹20,000");
+  await expect(page.locator("main")).toContainText("Total ₹20,500");
+  await expectClean(page, "new one-time loan");
+  await page.screenshot({ path: "test-results/new-loan-custom.png", fullPage: true });
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.locator("main")).toContainText("Return Date");
+  await expect(page.locator("main")).toContainText("One time");
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  const id = new URL(page.url()).searchParams.get("id")!;
+
+  expect(await loanRow(id)).toMatchObject({ type: "custom", frequency: "once", return_date: shift(TODAY, 18), amount: 2000000, principal_left: 2000000, interest_style: "fixed", interest_value: 50000 });
+  const dues = async () => (await admin.from("dues").select("due_date,interest_amount,principal_amount,remaining").eq("loan_id", id).eq("cancelled", false).order("due_date")).data!;
+  expect(await dues()).toEqual([{ due_date: shift(TODAY, 18), interest_amount: 50000, principal_amount: 2000000, remaining: 2050000 }]);
+  await expect(page.locator("main")).toContainText("One time");
+  await expect(page.locator("main")).toContainText("₹500 for the whole loan");
+  await expect(page.locator("main")).toContainText("₹20,500");
+  await expect(page.locator("main")).toContainText("1 collection left");
+  await expectClean(page, "one-time loan page");
+  await page.screenshot({ path: "test-results/loan-custom.png", fullPage: true });
+
+  // the date passes (65 days ago now): on reopening the app, still the one collection for the same amount
+  await admin.from("loans").update({ start_date: shift(TODAY, -70), return_date: shift(TODAY, -65) }).eq("id", id);
+  await admin.from("dues").update({ due_date: shift(TODAY, -65) }).eq("loan_id", id);
+  await page.goto("/home/");
+  await openLoan(page, id);
+  expect(await dues()).toEqual([{ due_date: shift(TODAY, -65), interest_amount: 50000, principal_amount: 2000000, remaining: 2050000 }]);
+  await expect(page.locator("main")).toContainText("Overdue");
+  await expect(page.locator("main")).toContainText("₹20,500");
+
+  // part now, the rest later: closed when everything is back, and never a second collection
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Pay Principal/ }).click();
+  await page.locator("#pay-principal").fill("5000");
+  await confirmAndFinish(page);
+  expect(await dues()).toEqual([{ due_date: shift(TODAY, -65), interest_amount: 50000, principal_amount: 2000000, remaining: 1550000 }]);
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Full Settlement/ }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Confirm Settlement/ })).toContainText("₹15,500");
+  await page.getByRole("dialog").getByRole("button", { name: /Confirm Settlement/ }).click();
+  await expect(page.getByText("Loan Closed").first()).toBeVisible();
+  await page.getByRole("button", { name: "Done" }).click();
+  expect(await loanRow(id)).toMatchObject({ principal_left: 0, status: "closed" });
+  expect((await dues()).length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
 test("New Loan asks how often to collect only when the kind of loan does not already say", async ({ page }) => {
   await signInOwner(page);
   const toInterestStep = async (kind: string) => {

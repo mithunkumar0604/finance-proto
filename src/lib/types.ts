@@ -4,7 +4,8 @@
 export type ISODate = string; // "YYYY-MM-DD"
 
 export type LoanType = "weekly" | "monthly" | "15day" | "30day" | "vehicle" | "jewel" | "custom";
-export type Frequency = "weekly" | "15days" | "30days" | "monthly" | "custom";
+/** "once" = a one-time loan: a single collection on the loan's return date. ("custom" is the older 30-day period.) */
+export type Frequency = "weekly" | "15days" | "30days" | "monthly" | "custom" | "once";
 export type InterestStyle = "percent" | "fixed" | "custom";
 export type InterestMethod = "fixed" | "reducing" | "manual";
 export type PaymentMethod = "cash" | "bank" | "upi" | "other";
@@ -88,6 +89,8 @@ export interface Loan {
   referredBy?: string;
   interest: InterestSetting;
   frequency: Frequency;
+  /** A one-time loan (frequency "once"): the day everything is to be returned. */
+  returnDate?: ISODate;
   /** Fixed principal collected with every due (weekly / daily style loans). 0 = interest-only. */
   principalPerDue: number;
   principalLeft: number;

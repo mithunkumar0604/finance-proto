@@ -44,7 +44,8 @@ export class FinanceError extends Error {
 // Schedule
 // ---------------------------------------------------------------------------
 
-const PERIOD_DAYS: Record<Exclude<Frequency, "monthly">, number> = { weekly: 7, "15days": 15, "30days": 30, custom: 30 };
+// "once" has no period: a one-time loan has a single collection, on its return date (see firstDueDate).
+const PERIOD_DAYS: Record<Exclude<Frequency, "monthly">, number> = { weekly: 7, "15days": 15, "30days": 30, custom: 30, once: 0 };
 
 /**
  * ASSUMPTION: next collection date = previous date + one period ("custom" = 30 days).
@@ -61,6 +62,18 @@ export function nextDueDate(from: ISODate, freq: Frequency, periods = 1, anchor?
   let n = 1;
   while (n < 2400 && toISO(addMonths(start, n)) <= from) n++;
   return toISO(addMonths(start, n + periods - 1));
+}
+
+/**
+ * The date of a loan's first collection. A one-time loan ("once") is collected on the
+ * return date the owner chose, which can be any day after the loan is given; every other
+ * loan one period after it is given.
+ */
+export function firstDueDate(loan: Pick<Loan, "startDate" | "frequency" | "returnDate">): ISODate {
+  if (loan.frequency !== "once") return nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate);
+  if (!loan.returnDate) throw new FinanceError("INVALID_TERMS", "Choose the date the loan is to be returned.");
+  if (loan.returnDate <= loan.startDate) throw new FinanceError("INVALID_TERMS", "The return date must be after the day the loan is given.");
+  return loan.returnDate;
 }
 
 /** Step a date back by `n` periods (used only to build demo history). */
@@ -173,6 +186,8 @@ export function accrueDues(loan: Loan, loanDues: Due[], today: ISODate, newId: (
   const dues = [...loanDues];
   if (loan.status !== "active" || loan.principalLeft <= 0) return dues;
   for (let n = 0; n < 600; n++) {
+    // A one-time loan has its one collection and never another: nothing is added when the date passes.
+    if (loan.frequency === "once" && dues.length > 0) break;
     const last = dues.reduce((a, d) => (periodDate(d) > a ? periodDate(d) : a), "");
     const open = openDues(dues);
     // the collection for a period appears once that period has started (the day after the last one)
@@ -185,7 +200,7 @@ export function accrueDues(loan: Loan, loanDues: Due[], today: ISODate, newId: (
     dues.push({
       id: newId(dues.length + 1),
       loanId: loan.id,
-      dueDate: nextDueDate(last || loan.startDate, loan.frequency, 1, loan.startDate),
+      dueDate: loan.frequency === "once" ? firstDueDate(loan) : nextDueDate(last || loan.startDate, loan.frequency, 1, loan.startDate),
       interestAmount,
       principalAmount,
       paid: 0,
@@ -446,7 +461,7 @@ export function applyWaiver(loan: Loan, loanDues: Due[], input: WaiverInput, tod
  * paid on time: they change if the customer pays late, returns principal early or closes.
  */
 export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit = 400): Due[] {
-  if (loan.status !== "active") return [];
+  if (loan.status !== "active" || loan.frequency === "once") return [];
   const open = openDues(loanDues);
   if (!open.length) return [];
   const out: Due[] = [];
@@ -532,7 +547,9 @@ export function loanDefaults(type: LoanType, amount: Paise): {
     case "jewel":
       return { frequency: "monthly", interest: { style: "percent", value: 2, method: "reducing" }, principalPerDue: 0 };
     case "custom":
-      return { frequency: "custom", interest: { style: "custom", value: 0, method: "manual" }, principalPerDue: 0 };
+      // a one-time loan: the owner sets the return date and the interest for the whole loan;
+      // its single collection carries all of the principal
+      return { frequency: "once", interest: { style: "fixed", value: 0, method: "fixed" }, principalPerDue: amount };
     case "monthly":
       return { frequency: "monthly", interest: { style: "percent", value: 3, method: "reducing" }, principalPerDue: 0 };
   }
@@ -540,9 +557,9 @@ export function loanDefaults(type: LoanType, amount: Paise): {
 
 /** First collection preview shown in the New Loan review step. */
 export function previewFirstCollection(
-  loan: Pick<Loan, "interest" | "amount" | "principalLeft" | "principalPerDue" | "frequency" | "startDate">,
+  loan: Pick<Loan, "interest" | "amount" | "principalLeft" | "principalPerDue" | "frequency" | "startDate" | "returnDate">,
 ) {
   const interest = periodInterest(loan);
   const principal = Math.min(loan.principalPerDue, loan.principalLeft);
-  return { date: nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate), interest, principal, total: interest + principal };
+  return { date: firstDueDate(loan), interest, principal, total: interest + principal };
 }

@@ -149,8 +149,9 @@ function LoanDetails() {
               <Row label="Original Amount" value={money(loan.amount)} />
               <Row label="Principal Left" value={money(loan.principalLeft)} strong />
               <Row label="Interest Setting" value={interestLabel(loan)} />
-              {loan.principalPerDue > 0 && <Row label="Principal per collection" value={money(loan.principalPerDue)} />}
+              {loan.principalPerDue > 0 && loan.frequency !== "once" && <Row label="Principal per collection" value={money(loan.principalPerDue)} />}
               <Row label="Payment Frequency" value={FREQ_LABEL[loan.frequency]} />
+              {loan.frequency === "once" && loan.returnDate && <Row label="Return Date" value={dLong(v.next?.dueDate ?? loan.returnDate)} strong />}
               <Row label="Given On" value={dLong(loan.startDate)} />
               <Row label="Next Collection" value={active && v.next ? dLong(v.next.dueDate) : "—"} />
               {schedule && (
@@ -260,6 +261,7 @@ function DeletePaymentSheet({ payment, onClose }: { payment: Payment; onClose: (
 function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
   const [interest, setInterest] = useState<InterestSetting>(loan.interest);
   const [reference, setReference] = useState(loan.reference ?? "");
+  const once = loan.frequency === "once";
   const [loanNo, setLoanNo] = useState(loan.loanNo ?? "");
   const [referredBy, setReferredBy] = useState(loan.referredBy ?? "");
   const loans = useAppState().loans;
@@ -278,12 +280,12 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           disabled={busy}
           onClick={async () => {
             const p =
-              interestProblem(interest) ??
-              (interest.style !== "custom" && !(interest.value > 0) && !(loan.principalPerDue > 0) ? "Enter the interest." : null) ??
+              (once ? null : (interestProblem(interest) ?? (interest.style !== "custom" && !(interest.value > 0) && !(loan.principalPerDue > 0) ? "Enter the interest." : null))) ??
               loanNoProblem(loanNo, loans, loan.id);
             setProblem(p);
             if (p) return;
-            if (!(await run(() => actions.updateLoan(loan.id, { interest, reference: reference || undefined, loanNo: loanNo.trim() || undefined, referredBy: referredBy.trim() || undefined }).then(() => true)))) return;
+            const patch = { ...(once ? {} : { interest }), reference: reference || undefined, loanNo: loanNo.trim() || undefined, referredBy: referredBy.trim() || undefined };
+            if (!(await run(() => actions.updateLoan(loan.id, patch).then(() => true)))) return;
             toast("Loan updated");
             onClose();
           }}
@@ -293,6 +295,9 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
       }
     >
       <div className="space-y-5 pb-2">
+        {/* A one-time loan's interest was fixed when it was given; its date is moved with Reschedule. */}
+        {once && <p className="rounded-xl bg-line-2/80 px-3 py-2.5 text-sm text-ink-2">This is a one-time loan. To change its return date, use Reschedule on the loan page.</p>}
+        <div className={once ? "hidden" : "space-y-5"}>
         <Field label="Interest Style" group>
           <OptionGrid
             cols={3}
@@ -320,6 +325,7 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
             ]}
           />
         </Field>
+        </div>
         <Field label="Reference (optional)">
           <Input value={reference} onChange={(e) => setReference(e.target.value)} />
         </Field>

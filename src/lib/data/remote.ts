@@ -261,7 +261,7 @@ export async function deleteCustomer(id: string): Promise<void> {
 
 export async function createLoan(
   key: string,
-  loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "principalPerDue">,
+  loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "returnDate" | "principalPerDue">,
   firstDue: Due,
   security: Security | null,
 ): Promise<string> {

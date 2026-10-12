@@ -211,6 +211,12 @@ name, who referred the customer, a date, a remark, the collection amount, phone.
   Payment (interest of one collection), Amount, then where the loan stands.
 - **Fixed:** New Loan crashed when Percentage was tapped after picking Weekly (the
   fixed rupee amount was read as a percentage), or when any percentage over 100 was typed.
+- **Custom = a one-time loan.** Picking Custom now asks for a **return date** (any day
+  after the loan is given, even the next day) and the **interest for the whole loan**.
+  The loan has one collection on that date: interest plus all the principal. Nothing is
+  added by the app when the date passes; it shows as overdue for the same amount. Part
+  payments, moving the date, waiving and deleting a payment work as on any loan.
+  (Before, Custom silently put the first collection 30 days out and repeated.)
 - Not done: the import sheet has no "referred by" column yet (the loan number comes in
   through `loan_ref`).
 

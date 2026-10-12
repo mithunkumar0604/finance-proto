@@ -32,7 +32,7 @@ import { toast } from "@/components/ui/toast";
 import { slotsFor } from "@/lib/files";
 import { loanDefaults } from "@/lib/finance/engine";
 import { collectedEvery, interestProblem, loanNoProblem, nextLoanNo, referrers, safePreview, switchInterestStyle, typeSetsFrequency } from "@/lib/loan-form";
-import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
+import { daysBetween, dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, shiftISO, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
 import { actions, LIVE, newKey, useAppState } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
@@ -55,7 +55,7 @@ const TYPE_OPTIONS: { value: LoanType; label: string; sub: string; icon: ReactNo
   { value: "30day", label: "30 Days", sub: "Short term", icon: <CalendarRange className="size-5" /> },
   { value: "vehicle", label: "Vehicle", sub: "Vehicle as security", icon: <Car className="size-5" /> },
   { value: "jewel", label: "Jewel", sub: "Gold as security", icon: <Gem className="size-5" /> },
-  { value: "custom", label: "Custom", sub: "Set your own terms", icon: <Settings2 className="size-5" /> },
+  { value: "custom", label: "Custom", sub: "One time · you set the return date", icon: <Settings2 className="size-5" /> },
 ];
 
 function Wizard() {
@@ -79,6 +79,8 @@ function Wizard() {
   const [frequency, setFrequency] = useState<Frequency>("monthly");
   // Weekly / Monthly / 15 Days / 30 Days already say how often: it is asked only if the user taps Change.
   const [askFrequency, setAskFrequency] = useState(false);
+  // A one-time loan (Custom): the day everything is to be returned. Chosen by the owner; nothing is assumed.
+  const [returnDate, setReturnDate] = useState("");
   const [interest, setInterest] = useState<InterestSetting>({ style: "percent", value: 3, method: "reducing" });
   const [principalPerDue, setPrincipalPerDue] = useState<number | "">("");
   const [secKind, setSecKind] = useState<SecurityKind>("none");
@@ -109,7 +111,10 @@ function Wizard() {
   };
 
   const interestWrong = interestProblem(interest);
-  const canNext = [!!customer, !!customer && !!amount && amount > 0 && !loanNoWrong, !!type, !interestWrong && (interest.value > 0 || (principalPerDue || 0) > 0), true, true][step];
+  const once = frequency === "once";
+  const returnWrong = !once ? null : !returnDate ? "Choose the return date." : returnDate <= startDate ? "The return date must be after the day the loan is given." : null;
+  const termsOk = once ? !interestWrong && !returnWrong : !interestWrong && (interest.value > 0 || (principalPerDue || 0) > 0);
+  const canNext = [!!customer, !!customer && !!amount && amount > 0 && !loanNoWrong, !!type, termsOk, true, true][step];
 
   const draft = {
     customerId: customerId!,
@@ -121,6 +126,7 @@ function Wizard() {
     referredBy: referredBy.trim() || undefined,
     interest,
     frequency,
+    ...(once && returnDate ? { returnDate } : {}),
     principalPerDue: principalPerDue || 0,
     security: customer ? buildSecurity(secKind, sec, customer.name) : null,
   };
@@ -268,7 +274,64 @@ function Wizard() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 3 && once && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold tracking-tight">Return date &amp; interest</h2>
+            <div>
+              <Field
+                label="Return Date"
+                hint={
+                  returnDate && returnWrong ? (
+                    <span className="text-rose-600">{returnWrong}</span>
+                  ) : returnDate ? (
+                    `${dLong(returnDate)} · ${daysBetween(startDate, returnDate)} day${daysBetween(startDate, returnDate) === 1 ? "" : "s"} after the loan is given`
+                  ) : (
+                    "The day the customer returns the full amount. It is collected once, not every week or month."
+                  )
+                }
+              >
+                <Input type="date" value={returnDate} min={shiftISO(startDate, 1)} onChange={(e) => setReturnDate(e.target.value)} />
+              </Field>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[1, 5, 7, 10, 15, 30].map((d) => {
+                  const on = returnDate === shiftISO(startDate, d);
+                  return (
+                    <button key={d} type="button" onClick={() => setReturnDate(shiftISO(startDate, d))} className={clsx("num h-10 rounded-full border px-4 text-sm font-semibold", on ? "border-ink bg-ink text-white" : "border-line bg-surface text-ink-2")}>
+                      {d} {d === 1 ? "day" : "days"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Field label="Interest Style" group>
+              <OptionGrid
+                cols={2}
+                value={interest.style === "percent" ? "percent" : "fixed"}
+                // the interest of a one-time loan is taken once, on the amount given
+                onChange={(style) => setInterest({ ...switchInterestStyle(interest, style, loanDefaults("custom", amount || 0).interest), method: "fixed" })}
+                options={[
+                  { value: "fixed", label: "Fixed Amount", sub: "e.g. ₹500" },
+                  { value: "percent", label: "Percentage", sub: "of the amount, once" },
+                ]}
+              />
+            </Field>
+            <Field label="Interest for the whole loan" hint="Leave empty if no interest is charged.">
+              {interest.style === "percent" ? (
+                <DecimalInput key="pct-once" value={interest.value} onChange={(value) => setInterest({ ...interest, value })} suffix="%" placeholder="2" />
+              ) : (
+                <MoneyInput value={interest.value || ""} onChange={(v) => setInterest({ ...interest, value: v || 0 })} />
+              )}
+            </Field>
+            {interestWrong && (
+              <p role="alert" className="-mt-3 rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+                {interestWrong}
+              </p>
+            )}
+            {returnDate && !returnWrong && <DemoPreview title="To be returned" date={preview.date} interest={preview.interest} principal={preview.principal} />}
+          </div>
+        )}
+
+        {step === 3 && !once && (
           <div className="space-y-6">
             <h2 className="text-2xl font-bold tracking-tight">Interest &amp; collection</h2>
             <Field label="Interest Style" group>
@@ -366,7 +429,8 @@ function Wizard() {
                 <Row label="Loan Type" value={LOAN_TYPE_LABEL[draft.type]} />
                 <Row label="Interest Setting" value={interestLabel(draft)} />
                 <Row label="Collection Frequency" value={FREQ_LABEL[draft.frequency]} />
-                {draft.principalPerDue > 0 && <Row label="Principal per collection" value={money(draft.principalPerDue)} />}
+                {draft.returnDate && <Row label="Return Date" value={dLong(draft.returnDate)} />}
+                {draft.principalPerDue > 0 && !once && <Row label="Principal per collection" value={money(draft.principalPerDue)} />}
                 <Row label="Start Date" value={dLong(draft.startDate)} />
                 <Row label="Security" value={draft.security ? securityLabel(draft.security) : "None"} />
                 {draft.reference && <Row label="Reference" value={draft.reference} />}
@@ -375,7 +439,7 @@ function Wizard() {
               </div>
             </Card>
             <div className="mt-4">
-              <DemoPreview date={preview.date} interest={preview.interest} principal={preview.principal} />
+              <DemoPreview title={once ? "To be returned" : undefined} date={preview.date} interest={preview.interest} principal={preview.principal} />
             </div>
           </div>
         )}
@@ -424,11 +488,11 @@ function CustomerPill({ name, sub, onChange }: { name: string; sub: string; onCh
   );
 }
 
-function DemoPreview({ date, interest, principal }: { date: string; interest: number; principal: number }) {
+function DemoPreview({ date, interest, principal, title = "First collection" }: { date: string; interest: number; principal: number; title?: string }) {
   return (
     <div className="rounded-2xl border border-dashed border-line bg-surface p-4">
       <div className="flex items-center gap-2 text-sm font-bold text-ink-2">
-        <Calendar className="size-4 text-brand-700" /> First collection · {dLong(date)}
+        <Calendar className="size-4 text-brand-700" /> {title} · {dLong(date)}
       </div>
       <div className="num mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[15px]">
         <span>

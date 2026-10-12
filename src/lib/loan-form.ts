@@ -18,6 +18,7 @@ const EVERY: Record<Frequency, string> = {
   "15days": "every 15 days",
   "30days": "every 30 days",
   custom: "on dates you set",
+  once: "once, on the return date",
 };
 
 /** "Collected every week": how often, in words. */
@@ -48,7 +49,7 @@ export function interestProblem(i: InterestSetting): string | null {
 }
 
 /** The first collection for what is typed so far. While the figures are not usable it is all zero: a preview must never break the screen. */
-export function safePreview(loan: Pick<Loan, "interest" | "amount" | "principalLeft" | "principalPerDue" | "frequency" | "startDate">) {
+export function safePreview(loan: Pick<Loan, "interest" | "amount" | "principalLeft" | "principalPerDue" | "frequency" | "startDate" | "returnDate">) {
   try {
     return previewFirstCollection(loan);
   } catch {

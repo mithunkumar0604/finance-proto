@@ -12,7 +12,7 @@
 
 import { format } from "date-fns";
 import { useSyncExternalStore } from "react";
-import { accrueDues, applyPayment, applyWaiver, buildDue, nextDueDate, openDue, type InterestPick, type PaymentInput, type PaymentResult } from "./finance/engine";
+import { accrueDues, applyPayment, applyWaiver, buildDue, firstDueDate, openDue, type InterestPick, type PaymentInput, type PaymentResult } from "./finance/engine";
 import { buildDemoDB, type DemoDB } from "./demo-data";
 import { money, todayISO } from "./format";
 import { loanNoProblem } from "./loan-form";
@@ -414,7 +414,7 @@ export const actions = {
     const taken = loanNoProblem(data.loanNo ?? "", getState().loans);
     if (taken) throw new AppError("LOAN_NO_TAKEN", taken);
     if (LIVE) {
-      const firstDue = buildDue(draft, nextDueDate(draft.startDate, draft.frequency, 1, draft.startDate), newKey());
+      const firstDue = buildDue(draft, firstDueDate(draft), newKey());
       const loanId = await remote.createLoan(key, draft, firstDue, draft.security);
       await reloadLoans([loanId]);
       refreshActivity();
@@ -424,7 +424,7 @@ export const actions = {
     }
     const s = getState();
     const loan: Loan = { ...draft, id: nextLoanId(s.loans) };
-    const firstDue = buildDue(loan, nextDueDate(loan.startDate, loan.frequency, 1, loan.startDate), uid("D"));
+    const firstDue = buildDue(loan, firstDueDate(loan), uid("D"));
     // a loan entered with an earlier date: every period since then is pending
     const loanDues = accrueDues(loan, [firstDue], todayISO(), () => uid("D"));
     const customer = s.customers.find((c) => c.id === loan.customerId);

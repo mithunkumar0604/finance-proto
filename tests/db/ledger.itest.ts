@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { rupees } from "../../src/lib/finance/money";
-import { addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
+import { accrue, addCustomer, admin, anon, codeOf, giveLoan, makeUser, pay, readLoan, shift, today, type TestUser } from "./helpers";
 
 let owner: TestUser;
 let staff: TestUser;
@@ -494,6 +494,107 @@ describe("who can do what", () => {
     const temp = await makeUser("staff", "Temp");
     expect((await owner.db.from("profiles").update({ active: false }).eq("id", temp.id).select()).data).toHaveLength(1);
     expect((await temp.db.from("customers").select("id").limit(1)).data).toHaveLength(0);
+  });
+});
+
+describe("one-time loans (Custom): returned in full on a chosen date", () => {
+  const once = (customerId: string, start: string, ret: string, interest = rupees(500), amount = rupees(20000)) => ({
+    customerId,
+    type: "custom" as const,
+    amount,
+    startDate: start,
+    interest: { style: "fixed" as const, value: interest, method: "fixed" as const },
+    frequency: "once" as const,
+    returnDate: ret,
+    principalPerDue: amount,
+  });
+  const openOf = async (loanId: string) => (await admin.from("dues").select("due_date,interest_amount,principal_amount,remaining").eq("loan_id", loanId).eq("cancelled", false).gt("remaining", 0).order("due_date")).data!;
+
+  it("has one collection, on the return date: the interest for the whole loan and all the principal", async () => {
+    const customerId = await addCustomer(owner.db, "Eighteen Days");
+    const ret = shift(TODAY, 18);
+    const res = await giveLoan(owner.db, once(customerId, TODAY, ret));
+    expect(res.error).toBeNull();
+    const { loan, dues } = await readLoan(owner.db, res.data.loan_id);
+    expect(loan).toMatchObject({ frequency: "once", returnDate: ret, principalLeft: rupees(20000), status: "active" });
+    expect(dues).toHaveLength(1);
+    expect(dues[0]).toMatchObject({ dueDate: ret, interestAmount: rupees(500), principalAmount: rupees(20000), paid: 0 });
+  });
+
+  it("can be for a single day", async () => {
+    const customerId = await addCustomer(owner.db, "One Day");
+    const res = await giveLoan(owner.db, once(customerId, TODAY, shift(TODAY, 1)));
+    expect(res.error).toBeNull();
+    expect((await openOf(res.data.loan_id))[0].due_date).toBe(shift(TODAY, 1));
+  });
+
+  it("nothing is added when the date passes: weeks late it is still the one collection, the same amount", async () => {
+    const customerId = await addCustomer(owner.db, "Late Returner");
+    // given 70 days ago, to be returned 5 days later: 65 days late today
+    const res = await giveLoan(owner.db, once(customerId, shift(TODAY, -70), shift(TODAY, -65)));
+    expect(res.error).toBeNull();
+    const loanId = res.data.loan_id as string;
+    await accrue(loanId);
+    await accrue(loanId);
+    expect((await owner.db.rpc("accrue_all")).error).toBeNull();
+    expect(await openOf(loanId)).toEqual([{ due_date: shift(TODAY, -65), interest_amount: rupees(500), principal_amount: rupees(20000), remaining: rupees(20500) }]);
+    // the database and the engine in the app agree
+    const { accrueDues } = await import("../../src/lib/finance/engine");
+    const { loan, dues } = await readLoan(owner.db, loanId);
+    expect(accrueDues(loan, dues, TODAY, (n) => `x${n}`)).toEqual(dues);
+  });
+
+  it("is paid in parts or in full; when everything is back the loan is closed, and nothing more appears in between", async () => {
+    const customerId = await addCustomer(owner.db, "Part Payer");
+    const res = await giveLoan(owner.db, once(customerId, shift(TODAY, -30), shift(TODAY, -12)));
+    const loanId = res.data.loan_id as string;
+    expect((await pay(owner.db, loanId, { date: TODAY, interest: rupees(500), principal: rupees(5000), other: 0 })).error).toBeNull();
+    expect(await openOf(loanId)).toEqual([{ due_date: shift(TODAY, -12), interest_amount: rupees(500), principal_amount: rupees(20000), remaining: rupees(15000) }]);
+    expect((await readLoan(owner.db, loanId)).loan).toMatchObject({ principalLeft: rupees(15000), status: "active" });
+    expect((await pay(owner.db, loanId, { date: TODAY, interest: 0, principal: rupees(15000), other: 0 })).error).toBeNull();
+    const { loan, dues } = await readLoan(owner.db, loanId);
+    expect(loan).toMatchObject({ principalLeft: 0, status: "closed", closedDate: TODAY });
+    expect(dues).toHaveLength(1);
+  });
+
+  it("a payment can be deleted and the date moved, as on any loan", async () => {
+    const customerId = await addCustomer(owner.db, "Moved Date");
+    const res = await giveLoan(owner.db, once(customerId, TODAY, shift(TODAY, 10)));
+    const loanId = res.data.loan_id as string;
+    const before = await readLoan(owner.db, loanId);
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(500), principal: rupees(20000), other: 0 });
+    expect((await readLoan(owner.db, loanId)).loan.status).toBe("closed");
+    expect((await owner.db.rpc("reverse_payment", { p_payment_id: paid.paymentId, p_reason: "" })).error).toBeNull();
+    const after = await readLoan(owner.db, loanId);
+    expect({ ...after.loan, version: 0 }).toEqual({ ...before.loan, version: 0 });
+    expect(after.dues).toEqual(before.dues);
+    expect((await owner.db.rpc("reschedule_due", { p_due_id: after.dues[0].id, p_new_date: shift(TODAY, 20), p_reason: "Asked for more time" })).error).toBeNull();
+    const moved = await readLoan(owner.db, loanId);
+    expect(moved.dues).toHaveLength(1);
+    expect(moved.dues[0]).toMatchObject({ dueDate: shift(TODAY, 20), interestAmount: rupees(500), principalAmount: rupees(20000) });
+    await accrue(loanId);
+    expect((await readLoan(owner.db, loanId)).dues).toHaveLength(1);
+  });
+
+  it("refuses a one-time loan with no return date, one on or before the loan date, or a collection on another date", async () => {
+    const customerId = await addCustomer(owner.db, "Bad Dates");
+    const good = once(customerId, TODAY, shift(TODAY, 5));
+    expect(codeOf(await giveLoan(owner.db, good, randomUUID(), (a) => delete a.p_loan.return_date))).toBe("RETURN_DATE_NEEDED");
+    expect(codeOf(await giveLoan(owner.db, good, randomUUID(), (a) => (a.p_loan.return_date = TODAY)))).toBe("RETURN_DATE_EARLY");
+    expect(codeOf(await giveLoan(owner.db, good, randomUUID(), (a) => (a.p_loan.return_date = shift(TODAY, -3))))).toBe("RETURN_DATE_EARLY");
+    // the collection must be on the return date, not 30 days out as before
+    expect(codeOf(await giveLoan(owner.db, good, randomUUID(), (a) => (a.p_first_due.due_date = shift(TODAY, 30))))).toBe("MISMATCH");
+    // and it must carry all of the principal
+    expect(codeOf(await giveLoan(owner.db, good, randomUUID(), (a) => (a.p_loan.principal_per_due = 0)))).toBe("INVALID_TERMS");
+    expect((await admin.from("loans").select("id").eq("customer_id", customerId)).data).toEqual([]);
+  });
+
+  it("other kinds of loan are untouched: a monthly loan still gets a collection for every period", async () => {
+    const { loanId } = await newLoan(rupees(100000), undefined, shift(TODAY, -70));
+    await accrue(loanId);
+    expect((await openOf(loanId)).length).toBeGreaterThanOrEqual(3);
+    // and a repeating loan cannot be edited into a one-time one
+    expect(codeOf(await owner.db.rpc("update_loan", { p_loan_id: loanId, p_version: 1, p_patch: { frequency: "once" } }))).toBe("INVALID_TERMS");
   });
 });
 

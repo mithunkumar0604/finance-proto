@@ -5,7 +5,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { dueFromRow, dueToRow, loanFromRow, loanToRow, collateralToRow } from "../../src/lib/data/mappers";
-import { applyPayment, buildDue, nextDueDate, type PaymentInput, type PaymentResult } from "../../src/lib/finance/engine";
+import { applyPayment, buildDue, firstDueDate, type PaymentInput, type PaymentResult } from "../../src/lib/finance/engine";
 import type { Loan, Security } from "../../src/lib/types";
 
 export const URL = process.env.SUPABASE_TEST_URL ?? "http://127.0.0.1:15321";
@@ -60,18 +60,21 @@ export async function addCustomer(db: SupabaseClient, name: string, collectorId?
   return data.id;
 }
 
-type Terms = Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "interest" | "frequency" | "principalPerDue"> & { reference?: string; loanNo?: string; referredBy?: string; security?: Security | null };
+type Terms = Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "interest" | "frequency" | "principalPerDue"> & { reference?: string; loanNo?: string; referredBy?: string; returnDate?: string; security?: Security | null };
 
 /** Creates a loan the way the app does: the engine builds the first collection, the database saves both. */
-export async function giveLoan(db: SupabaseClient, terms: Terms, key = randomUUID()) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests change what is sent, to check the database refuses it
+export async function giveLoan(db: SupabaseClient, terms: Terms, key = randomUUID(), tamper?: (args: Record<string, any>) => void) {
   const draft: Loan = { ...terms, id: "", principalLeft: terms.amount, status: "active", security: terms.security ?? null };
-  const first = buildDue(draft, nextDueDate(draft.startDate, draft.frequency, 1, draft.startDate), randomUUID());
-  return db.rpc("create_loan", {
+  const first = buildDue(draft, firstDueDate(draft), randomUUID());
+  const args = {
     p_key: key,
     p_loan: loanToRow(draft),
     p_first_due: dueToRow(first),
     p_collateral: draft.security ? collateralToRow(draft.security) : null,
-  });
+  };
+  tamper?.(args);
+  return db.rpc("create_loan", args);
 }
 
 /** Brings one loan's collections up to today, as the app does when it opens. */
