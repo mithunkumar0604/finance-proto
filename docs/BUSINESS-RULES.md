@@ -47,11 +47,11 @@ in full on a fixed date, not repeating.
 - The owner chooses the **return date**. Nothing is assumed.
 - There is **one collection**, on that date: the interest for the whole loan plus all
   of the principal. A percentage is taken once, on the amount given.
-- **ASSUMPTION (not yet confirmed by the client):** when the return date passes,
-  nothing is added automatically. The loan shows as overdue for the same amount. The
-  owner can move the date, take part payments, add a charge under Other, or waive
-  interest. If the client wants interest to keep running after the date, this is the
-  rule to change (engine `accrueDues` and SQL `accrue_dues`, the `once` line in each).
+- **Confirmed by the client's representative (12 October 2026):** when the return date
+  passes, nothing is added automatically. The loan shows as overdue for the same amount
+  and the owner moves the date with Reschedule. A late **penalty is entered by hand**
+  when it is collected (Receive Payment → Adjustment → Add charge); the app does not
+  work one out.
 - Part payments are allowed; the loan closes when principal and interest are both in.
 - Loans made as Custom before this change keep their old 30-day repeat.
 
