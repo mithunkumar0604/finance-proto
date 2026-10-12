@@ -60,7 +60,7 @@ export async function addCustomer(db: SupabaseClient, name: string, collectorId?
   return data.id;
 }
 
-type Terms = Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "interest" | "frequency" | "principalPerDue"> & { reference?: string; security?: Security | null };
+type Terms = Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "interest" | "frequency" | "principalPerDue"> & { reference?: string; loanNo?: string; referredBy?: string; security?: Security | null };
 
 /** Creates a loan the way the app does: the engine builds the first collection, the database saves both. */
 export async function giveLoan(db: SupabaseClient, terms: Terms, key = randomUUID()) {

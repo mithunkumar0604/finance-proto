@@ -82,6 +82,10 @@ export interface Loan {
   amount: number; // money given, in paise (every amount in these types is whole paise)
   startDate: ISODate;
   reference?: string;
+  /** The business's own number for this loan (their ledger's serial, e.g. "6845"). Unique. The app's id stays the key. */
+  loanNo?: string;
+  /** Who referred the customer for this loan. */
+  referredBy?: string;
   interest: InterestSetting;
   frequency: Frequency;
   /** Fixed principal collected with every due (weekly / daily style loans). 0 = interest-only. */
@@ -141,6 +145,17 @@ export interface Payment {
   dueId?: string;
   /** What this payment did to each collection: interest and principal part paid, interest waived. */
   allocations?: { dueId: string; interest: number; principal: number; waived: number }[];
+}
+
+/** A dated remark on a loan that is not a payment ("will pay next week"). */
+export interface LoanNote {
+  id: string;
+  loanId: string;
+  at: string; // ISO datetime
+  by: string;
+  text: string;
+  /** The day the customer said they would pay, when the note records a promise. */
+  promisedOn?: ISODate;
 }
 
 export interface Activity {

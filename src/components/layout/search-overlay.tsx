@@ -88,7 +88,8 @@ export function SearchOverlay({ onClose }: { onClose: () => void }) {
                       </p>
                       <p className="truncate text-sm text-muted">
                         {h.kind === "loan"
-                          ? `${LOAN_TYPE_LABEL[h.loan!.type]} · ${money(h.loan!.amount)}`
+                          ? // why this loan matched, when it was by the business's own number or who referred it
+                            `${/^(No. |Referred by )/.test(h.match) ? `${h.match} · ` : h.loan!.loanNo ? `No. ${h.loan!.loanNo} · ` : ""}${LOAN_TYPE_LABEL[h.loan!.type]} · ${money(h.loan!.amount)}`
                           : `${phoneFmt(h.customer.phone)} · ${h.customer.area}`}
                       </p>
                     </div>

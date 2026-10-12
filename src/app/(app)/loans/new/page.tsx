@@ -31,7 +31,7 @@ import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components
 import { toast } from "@/components/ui/toast";
 import { slotsFor } from "@/lib/files";
 import { loanDefaults } from "@/lib/finance/engine";
-import { collectedEvery, interestProblem, safePreview, switchInterestStyle, typeSetsFrequency } from "@/lib/loan-form";
+import { collectedEvery, interestProblem, loanNoProblem, nextLoanNo, referrers, safePreview, switchInterestStyle, typeSetsFrequency } from "@/lib/loan-form";
 import { dLong, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, moneyShort, phoneFmt, todayISO } from "@/lib/format";
 import { rupees } from "@/lib/finance/money";
 import { actions, LIVE, newKey, useAppState } from "@/lib/store";
@@ -71,6 +71,10 @@ function Wizard() {
   const [amount, setAmount] = useState<number | "">("");
   const [startDate, setStartDate] = useState(today);
   const [reference, setReference] = useState("");
+  // The business's own loan number: the next one is offered, and can be changed or cleared.
+  const [loanNo, setLoanNo] = useState(() => nextLoanNo(s.loans));
+  const [referredBy, setReferredBy] = useState("");
+  const loanNoWrong = loanNoProblem(loanNo, s.loans);
   const [type, setType] = useState<LoanType>();
   const [frequency, setFrequency] = useState<Frequency>("monthly");
   // Weekly / Monthly / 15 Days / 30 Days already say how often: it is asked only if the user taps Change.
@@ -105,7 +109,7 @@ function Wizard() {
   };
 
   const interestWrong = interestProblem(interest);
-  const canNext = [!!customer, !!customer && !!amount && amount > 0, !!type, !interestWrong && (interest.value > 0 || (principalPerDue || 0) > 0), true, true][step];
+  const canNext = [!!customer, !!customer && !!amount && amount > 0 && !loanNoWrong, !!type, !interestWrong && (interest.value > 0 || (principalPerDue || 0) > 0), true, true][step];
 
   const draft = {
     customerId: customerId!,
@@ -113,6 +117,8 @@ function Wizard() {
     amount: amount || 0,
     startDate,
     reference: reference.trim() || undefined,
+    loanNo: loanNo.trim() || undefined,
+    referredBy: referredBy.trim() || undefined,
     interest,
     frequency,
     principalPerDue: principalPerDue || 0,
@@ -240,6 +246,17 @@ function Wizard() {
               <Field label="Reference (optional)">
                 <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. Shop stock" />
               </Field>
+              <Field label="Loan No." hint={loanNoWrong ? <span className="text-rose-600">{loanNoWrong}</span> : "Your own number for this loan. The next one is filled in; change it if you need to."}>
+                <Input value={loanNo} onChange={(e) => setLoanNo(e.target.value)} placeholder="e.g. 6845" maxLength={30} autoComplete="off" />
+              </Field>
+              <Field label="Referred By (optional)">
+                <Input value={referredBy} onChange={(e) => setReferredBy(e.target.value)} placeholder="Who brought this customer" maxLength={80} autoComplete="off" list="referrers" />
+                <datalist id="referrers">
+                  {referrers(s.loans).map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </Field>
             </div>
           </div>
         )}
@@ -353,6 +370,8 @@ function Wizard() {
                 <Row label="Start Date" value={dLong(draft.startDate)} />
                 <Row label="Security" value={draft.security ? securityLabel(draft.security) : "None"} />
                 {draft.reference && <Row label="Reference" value={draft.reference} />}
+                {draft.loanNo && <Row label="Loan No." value={draft.loanNo} />}
+                {draft.referredBy && <Row label="Referred By" value={draft.referredBy} />}
               </div>
             </Card>
             <div className="mt-4">

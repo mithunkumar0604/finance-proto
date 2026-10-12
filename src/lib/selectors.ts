@@ -4,8 +4,9 @@
 import { dueRemaining, dueStatus, dueTotal, openDue, paymentTotal } from "./finance/engine";
 import { APP } from "./config";
 import { daysBetween, initials, shiftISO } from "./format";
+import { latestNotes } from "./loan-form";
 import { LIVE, type AppState } from "./store";
-import type { AppUser, Customer, Due, DueStatus, ISODate, Loan, LoanType, Role } from "./types";
+import type { AppUser, Customer, Due, DueStatus, ISODate, Loan, LoanNote, LoanType, Role } from "./types";
 
 export interface RegisterRow {
   due: Due;
@@ -15,6 +16,8 @@ export interface RegisterRow {
   total: number;
   remaining: number;
   daysLate: number;
+  /** The newest remark on the loan, if any ("will pay next week"). */
+  note?: LoanNote;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,6 +70,7 @@ export function indexes(s: AppState) {
   return {
     customer: new Map(s.customers.map((c) => [c.id, c])),
     loan: new Map(s.loans.map((l) => [l.id, l])),
+    note: latestNotes(s.notes ?? []),
   };
 }
 
@@ -82,6 +86,7 @@ function toRow(s: AppState, d: Due, today: ISODate, idx = indexes(s)): RegisterR
     total: dueTotal(d),
     remaining: dueRemaining(d),
     daysLate: Math.max(0, daysBetween(d.dueDate, today)),
+    note: idx.note.get(loan.id),
   };
 }
 
@@ -257,6 +262,8 @@ export function search(s: AppState, q: string): SearchHit[] {
     if (!c || !scope(c)) continue;
     const sec = l.security;
     if (norm(l.id).includes(n)) hits.push({ kind: "loan", customer: c, loan: l, match: l.id });
+    else if (l.loanNo && norm(l.loanNo).includes(n)) hits.push({ kind: "loan", customer: c, loan: l, match: `No. ${l.loanNo}` });
+    else if (l.referredBy && norm(l.referredBy).includes(n)) hits.push({ kind: "loan", customer: c, loan: l, match: `Referred by ${l.referredBy}` });
     else if (sec?.kind === "vehicle" && norm(sec.registration).includes(n))
       hits.push({ kind: "loan", customer: c, loan: l, match: sec.registration });
     else if (sec?.kind === "jewel" && (norm(sec.description).includes(n) || norm(sec.packetNo).includes(n)))

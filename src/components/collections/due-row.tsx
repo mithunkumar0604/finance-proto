@@ -44,6 +44,12 @@ export function DueRow({ row: r, canReceive = true, showMove = false }: { row: R
               </span>
             )}
           </div>
+          {r.note && !paid && (
+            <p className="mt-1 truncate text-[13px] text-indigo-700">
+              <span className="font-semibold">Note:</span> {r.note.text}
+              {r.note.promisedOn ? ` · promised ${dShort(r.note.promisedOn)}` : ""}
+            </p>
+          )}
         </div>
       </Link>
       <div className="flex shrink-0 flex-col items-end gap-2">

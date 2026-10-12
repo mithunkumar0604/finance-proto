@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Download, Lock } from "lucide-react";
+import { CalendarClock, Download, FileSpreadsheet, Lock } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -12,6 +12,8 @@ import { Card, EmptyState, Skeleton } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { todayISO } from "@/lib/format";
+import { latestNotes } from "@/lib/loan-form";
+import { exportSheet } from "@/lib/report-export";
 import { pdfMoney, type ReportDoc } from "@/lib/report-pdf";
 import { modeOf, personReport, RANGE_OPTIONS, rangeFor, registerReport, reportTitle, SHOW_OPTIONS, type RangeKey, type Show } from "@/lib/reports";
 import { permissions } from "@/lib/selectors";
@@ -101,6 +103,22 @@ function Reports() {
     }
   };
 
+  // The same loans as on screen, one row each, laid out like the business's own ledger.
+  const downloadExcel = async () => {
+    const lines = person ? registerReport(s, today, range, choice.show).lines.filter((l) => l.customer.id === person.customer.id) : register!.lines;
+    const period = `${person ? person.customer.name : "All People"} · ${range.label}${choice.show !== "all" ? ` · Show: ${showLabel}` : ""}`;
+    setBusy(true);
+    try {
+      const { downloadXlsx } = await import("@/lib/report-xlsx");
+      await downloadXlsx(exportSheet(lines, latestNotes(s.notes ?? []), title, period), `LedgerPro - ${title.replace(/[·–/\\:*?"<>|]+/g, "-")}.xlsx`);
+      toast(`${title} — Excel downloaded`);
+    } catch {
+      toast("The Excel file could not be made. Please try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-[1120px]">
       <PageHeader title="Reports" subtitle="Choose person, date and what to see" />
@@ -116,9 +134,14 @@ function Reports() {
               {register && ` · ${register.lines.length} ${register.lines.length === 1 ? "loan" : "loans"}`}
             </p>
           </div>
-          <Button variant="secondary" onClick={download} disabled={busy || reading} className="shrink-0 tracking-wide uppercase">
-            <Download className="size-4.5" /> {busy ? "Preparing…" : "Download PDF"}
-          </Button>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+            <Button variant="secondary" onClick={download} disabled={busy || reading} className="min-w-0 flex-1 tracking-wide uppercase sm:flex-none">
+              <Download className="size-4.5" /> {busy ? "Preparing…" : "Download PDF"}
+            </Button>
+            <Button variant="secondary" onClick={downloadExcel} disabled={busy || reading} className="min-w-0 flex-1 tracking-wide uppercase sm:flex-none">
+              <FileSpreadsheet className="size-4.5" /> Download Excel
+            </Button>
+          </div>
         </div>
 
         {reading ? (

@@ -7,6 +7,7 @@ import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { useUI } from "@/components/layout/ui-context";
 import { HEALTH_META } from "@/components/loans/loan-card";
+import { LoanNotes } from "@/components/loans/loan-notes";
 import { LoanTimeline } from "@/components/loans/loan-timeline";
 import { SecurityDetails } from "@/components/security/security-details";
 import { AnimatedMoney } from "@/components/ui/animated-money";
@@ -18,7 +19,7 @@ import { toast } from "@/components/ui/toast";
 import { DEFAULT_DELETE_REASON, deletablePayment, deleteReason } from "@/lib/delete-payment";
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
-import { interestProblem, switchInterestStyle } from "@/lib/loan-form";
+import { interestProblem, loanNoProblem, referrers, switchInterestStyle } from "@/lib/loan-form";
 import { loanView, permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
@@ -68,7 +69,7 @@ function LoanDetails() {
     <div>
       <PageHeader
         title={`Loan ${loan.id}`}
-        subtitle={LOAN_TYPE_LABEL[loan.type]}
+        subtitle={loan.loanNo ? `No. ${loan.loanNo} · ${LOAN_TYPE_LABEL[loan.type]}` : LOAN_TYPE_LABEL[loan.type]}
         actions={
           <Chip tone={h.tone} dot className="mr-1 uppercase">
             {h.label}
@@ -143,6 +144,8 @@ function LoanDetails() {
           {/* Loan summary */}
           <Card className="px-4 py-2 md:px-5">
             <div className="divide-y divide-line-2">
+              {loan.loanNo && <Row label="Loan No." value={loan.loanNo} strong />}
+              {loan.referredBy && <Row label="Referred By" value={loan.referredBy} />}
               <Row label="Original Amount" value={money(loan.amount)} />
               <Row label="Principal Left" value={money(loan.principalLeft)} strong />
               <Row label="Interest Setting" value={interestLabel(loan)} />
@@ -189,8 +192,13 @@ function LoanDetails() {
           )}
         </div>
 
+        {/* Remarks: anyone who can see the loan can add one */}
+        <div className="lg:col-start-1">
+          <LoanNotes loanId={loan.id} notes={(s.notes ?? []).filter((n) => n.loanId === loan.id)} />
+        </div>
+
         {/* Timeline */}
-        <section>
+        <section className="lg:col-start-2 lg:row-span-2 lg:row-start-1">
           <SectionHeader title="Payment Timeline" />
           <Card className="p-4 md:p-5">
             <LoanTimeline loan={loan} payments={v.payments} schedule={schedule} today={today} deletableId={deletableId} onDelete={setDeleting} />
@@ -252,6 +260,9 @@ function DeletePaymentSheet({ payment, onClose }: { payment: Payment; onClose: (
 function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
   const [interest, setInterest] = useState<InterestSetting>(loan.interest);
   const [reference, setReference] = useState(loan.reference ?? "");
+  const [loanNo, setLoanNo] = useState(loan.loanNo ?? "");
+  const [referredBy, setReferredBy] = useState(loan.referredBy ?? "");
+  const loans = useAppState().loans;
   const [problem, setProblem] = useState<string | null>(null);
   const { busy, run } = useSave();
   return (
@@ -266,10 +277,13 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           className="w-full"
           disabled={busy}
           onClick={async () => {
-            const p = interestProblem(interest) ?? (interest.style !== "custom" && !(interest.value > 0) && !(loan.principalPerDue > 0) ? "Enter the interest." : null);
+            const p =
+              interestProblem(interest) ??
+              (interest.style !== "custom" && !(interest.value > 0) && !(loan.principalPerDue > 0) ? "Enter the interest." : null) ??
+              loanNoProblem(loanNo, loans, loan.id);
             setProblem(p);
             if (p) return;
-            if (!(await run(() => actions.updateLoan(loan.id, { interest, reference: reference || undefined }).then(() => true)))) return;
+            if (!(await run(() => actions.updateLoan(loan.id, { interest, reference: reference || undefined, loanNo: loanNo.trim() || undefined, referredBy: referredBy.trim() || undefined }).then(() => true)))) return;
             toast("Loan updated");
             onClose();
           }}
@@ -309,6 +323,19 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
         <Field label="Reference (optional)">
           <Input value={reference} onChange={(e) => setReference(e.target.value)} />
         </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Loan No.">
+            <Input value={loanNo} onChange={(e) => setLoanNo(e.target.value)} placeholder="e.g. 6845" maxLength={30} autoComplete="off" />
+          </Field>
+          <Field label="Referred By">
+            <Input value={referredBy} onChange={(e) => setReferredBy(e.target.value)} maxLength={80} autoComplete="off" list="referrers-edit" />
+            <datalist id="referrers-edit">
+              {referrers(loans).map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+          </Field>
+        </div>
         {problem && (
           <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
             {problem}

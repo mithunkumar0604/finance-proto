@@ -4,9 +4,9 @@
 with
 tables as (select c.oid, c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'),
 fn as (select p.oid, p.proname, p.prosecdef, p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'),
-app_fns(name) as (values ('record_payment'), ('waive_interest'), ('reverse_payment'), ('create_loan'), ('reschedule_due'), ('update_loan'), ('release_collateral'), ('accrue_all'), ('app_role'), ('today_ist'), ('can_see_customer'), ('can_see_loan'), ('next_customer_id'), ('document_tile_filled'), ('delete_customer')),
+app_fns(name) as (values ('record_payment'), ('waive_interest'), ('reverse_payment'), ('create_loan'), ('reschedule_due'), ('update_loan'), ('release_collateral'), ('accrue_all'), ('app_role'), ('today_ist'), ('can_see_customer'), ('can_see_loan'), ('next_customer_id'), ('document_tile_filled'), ('delete_customer'), ('add_loan_note')),
 money_tables(name) as (values ('loans'), ('dues'), ('payments'), ('payment_allocations'), ('waivers'), ('collateral'), ('activity'), ('import_batches'))
-select '01 all 10 tables exist' as check, (select count(*) from tables) = 10 as ok, (select string_agg(relname, ', ' order by relname) from tables) as detail
+select '01 all 11 tables exist' as check, (select count(*) from tables) = 11 as ok, (select string_agg(relname, ', ' order by relname) from tables) as detail
 union all select '02 row level security is on for every table', not exists (select 1 from tables where not relrowsecurity), (select coalesce(string_agg(relname, ', '), 'none missing') from tables where not relrowsecurity)
 union all select '03 anon has no privilege on any table', not exists (select 1 from tables t where has_table_privilege('anon', t.oid, 'select') or has_table_privilege('anon', t.oid, 'insert') or has_table_privilege('anon', t.oid, 'update') or has_table_privilege('anon', t.oid, 'delete')), ''
 union all select '04 signed-in users cannot write money tables directly', not exists (select 1 from tables t join money_tables m on m.name = t.relname where has_table_privilege('authenticated', t.oid, 'insert') or has_table_privilege('authenticated', t.oid, 'update') or has_table_privilege('authenticated', t.oid, 'delete')), ''

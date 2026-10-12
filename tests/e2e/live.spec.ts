@@ -409,7 +409,7 @@ test("security photos: saved privately, shown through a signed link, replaced an
   await page.waitForURL(/home/);
   await openLoan(page, "LP-1088");
   await expect(page.getByRole("button", { name: "Open RC Book" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Add (Front|Side|RC Book)$/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Open RC Book" }).click();
   await expect(page.getByRole("dialog").getByRole("link", { name: "Open" })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("button", { name: /Remove|Replace/ })).toHaveCount(0);
@@ -550,6 +550,168 @@ test("New Loan: Weekly, then tapping Percentage, does not break the screen", asy
   await sheet.getByRole("button", { name: "Save Changes" }).click();
   await expect(sheet.getByRole("alert")).toContainText("more than 100%");
   expect(errors).toEqual([]);
+});
+
+test("the business's own loan number and Referred By: suggested, unique, shown, searchable and editable", async ({ page }) => {
+  await signInOwner(page);
+  const toAmountStep = async () => {
+    await page.goto("/loans/new/?customer=C001");
+    await page.locator("input[inputmode=numeric]").first().fill("30000");
+  };
+  const finishLoan = async () => {
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByText("Interest every month").click();
+    for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Create Loan" }).click();
+    await page.getByRole("link", { name: "View Loan" }).click();
+    await page.waitForURL(/loan\/\?id=LP-/);
+    return new URL(page.url()).searchParams.get("id")!;
+  };
+
+  // no number has been used yet: nothing is suggested, and the box may be left empty
+  await toAmountStep();
+  const no = page.getByLabel("Loan No.");
+  await expect(no).toHaveValue("");
+  await no.fill("6845");
+  await page.getByLabel("Referred By (optional)").fill("Suresh");
+  const first = await finishLoan();
+  expect(await loanRow(first)).toMatchObject({ import_ref: "6845", referred_by: "Suresh" });
+  await expect(page.locator("main")).toContainText("Loan No.");
+  await expect(page.locator("main")).toContainText("6845");
+  await expect(page.locator("main")).toContainText("Referred By");
+  await expect(page.locator("main")).toContainText("Suresh");
+  await expectClean(page, "loan with a number");
+
+  // the next loan: 6846 is offered; 6845 is refused with the loan that has it; Suresh is offered
+  await toAmountStep();
+  await expect(page.getByLabel("Loan No.")).toHaveValue("6846");
+  await expect(page.locator("datalist#referrers option[value='Suresh']")).toHaveCount(1);
+  await page.getByLabel("Loan No.").fill("6845");
+  await expect(page.locator("main")).toContainText(`Loan number 6845 is already used by loan ${first}.`);
+  await expect(page.getByRole("button", { name: "Continue" })).toBeDisabled();
+  await page.screenshot({ path: "test-results/new-loan-number.png", fullPage: true });
+  await page.getByLabel("Loan No.").fill("6846");
+  await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
+  const second = await finishLoan();
+  expect(await loanRow(second)).toMatchObject({ import_ref: "6846", referred_by: null });
+
+  // found by the book number, and by who referred
+  await page.goto("/home/");
+  await page.getByText("Search name, phone, vehicle, loan...").first().click();
+  const box = page.getByPlaceholder("Search name, phone, vehicle, loan...");
+  await box.fill("6845");
+  await expect(page.getByRole("dialog")).toContainText("No. 6845");
+  await box.fill("Suresh");
+  await expect(page.getByRole("dialog")).toContainText("Referred by Suresh");
+  await page.getByText("Referred by Suresh").first().click();
+  await page.waitForURL(new RegExp(`loan/\\?id=${first}`));
+
+  // Edit Loan: a number another loan has is refused; a free one and a new referrer are saved
+  await page.getByRole("button", { name: "Edit Loan" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByLabel("Loan No.")).toHaveValue("6845");
+  await sheet.getByLabel("Loan No.").fill("6846");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(sheet.getByRole("alert")).toContainText(`already used by loan ${second}`);
+  await sheet.getByLabel("Loan No.").fill("7000");
+  await sheet.getByLabel("Referred By").fill("Kumar");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(page.getByText("Loan updated")).toBeVisible();
+  expect(await loanRow(first)).toMatchObject({ import_ref: "7000", referred_by: "Kumar" });
+  await expect(page.locator("main")).toContainText("7000");
+});
+
+test("notes on a loan: a remark with a promised date, shown in Collections, and no amount changes", async ({ page }) => {
+  await signInOwner(page);
+  await openLoan(page, "LP-1057"); // overdue
+  const before = await loanRow("LP-1057");
+  const duesBefore = (await admin.from("dues").select("id,remaining").eq("loan_id", "LP-1057").order("id")).data;
+  const promised = shift(TODAY, 7);
+
+  await page.getByRole("button", { name: "Add Note" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Type the note first" })).toBeVisible();
+  await page.getByLabel("New note").fill("Will pay next week after the harvest");
+  await page.getByLabel("Promised to pay on (optional)").fill(promised);
+  await page.getByRole("button", { name: "Add Note" }).click();
+  await expect(page.getByText("Note added")).toBeVisible();
+  await expect(page.locator("main")).toContainText("Will pay next week after the harvest");
+  await expect(page.locator("main")).toContainText("Promised");
+  await expect(page.locator("main")).toContainText("Rajendran");
+  await expect(page.getByLabel("New note")).toHaveValue("");
+  const saved = (await admin.from("loan_notes").select("text,promised_on,by_name").eq("loan_id", "LP-1057")).data!;
+  expect(saved).toEqual([{ text: "Will pay next week after the harvest", promised_on: promised, by_name: "Rajendran" }]);
+  // a note is only a remark
+  expect(await loanRow("LP-1057")).toMatchObject({ principal_left: before.principal_left, status: before.status, version: before.version });
+  expect((await admin.from("dues").select("id,remaining").eq("loan_id", "LP-1057").order("id")).data).toEqual(duesBefore);
+  await expectClean(page, "loan with a note");
+  await page.screenshot({ path: "test-results/loan-notes.png", fullPage: true });
+
+  // still there after a reload, and beside the customer in the Overdue list
+  await page.reload();
+  await expect(page.locator("main")).toContainText("Will pay next week after the harvest");
+  await page.goto("/collections/?tab=overdue");
+  await expect(page.locator("main")).toContainText("Note: Will pay next week after the harvest");
+  await expectClean(page, "collections with a note");
+
+  // a second note becomes the one shown
+  await openLoan(page, "LP-1057");
+  await page.getByLabel("New note").fill("Paid half at the shop, rest on Friday");
+  await page.getByRole("button", { name: "Add Note" }).click();
+  await expect(page.getByText("Note added")).toBeVisible();
+  await page.goto("/collections/?tab=overdue");
+  await expect(page.locator("main")).toContainText("Note: Paid half at the shop, rest on Friday");
+  await expect(page.locator("main")).not.toContainText("Note: Will pay next week");
+});
+
+test("a collector can add a note for their own customer", async ({ page }) => {
+  await signIn(page, COLLECTOR);
+  await page.waitForURL(/home/);
+  await openLoan(page, "LP-1088");
+  await page.getByLabel("New note").fill("Shop was shut today");
+  await page.getByRole("button", { name: "Add Note" }).click();
+  await expect(page.getByText("Note added")).toBeVisible();
+  expect((await admin.from("loan_notes").select("text,by_name").eq("loan_id", "LP-1088")).data).toEqual([{ text: "Shop was shut today", by_name: "Mani" }]);
+});
+
+test("a report downloads as a real Excel file laid out like the business's ledger", async ({ page }) => {
+  await admin.from("loans").update({ import_ref: "5225", referred_by: "Suresh" }).eq("id", "LP-1024");
+  await signInOwner(page);
+  await page.goto("/reports/?range=month&show=all");
+  await expect(page.locator("#report-results h2")).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Download Excel/ }).click()]);
+  expect(download.suggestedFilename()).toMatch(/^LedgerPro - .*\.xlsx$/);
+  await expect(page.getByText("Excel downloaded")).toBeVisible();
+  const chunks: Buffer[] = [];
+  for await (const c of await download.createReadStream()) chunks.push(c as Buffer);
+  const bytes = new Uint8Array(Buffer.concat(chunks));
+  expect(String.fromCharCode(bytes[0], bytes[1])).toBe("PK");
+  const { unzipSync, strFromU8 } = await import("fflate");
+  const files = unzipSync(bytes);
+  const xml = strFromU8(files["xl/worksheets/sheet1.xml"]);
+  const text = (t: string) => `<t xml:space="preserve">${t}</t>`;
+  // their nine columns first, in their order
+  const heads = ["Given Date", "Loan No.", "Name", "Referred By", "Phone", "Date", "Note", "Payment", "Amount"];
+  const at = heads.map((h) => xml.indexOf(text(h)));
+  expect(at.every((i) => i > 0)).toBe(true);
+  expect([...at].sort((a, b) => a - b)).toEqual(at);
+  // one row per loan on screen, and Ravi Kumar's row carries his book number, referrer and amount
+  const onScreen = Number((await page.locator("#report-results").innerText()).match(/(\d+) loans?/)![1]);
+  expect((xml.match(/<row /g) ?? []).length).toBe(onScreen + 3); // title, period, header
+  const row = xml.split("<row ").find((r) => r.includes(text("5225")))!;
+  expect(row).toContain(text("Ravi Kumar"));
+  expect(row).toContain(text("Suresh"));
+  expect(row).toContain(text("LP-1024"));
+  expect(row).toContain("<v>200000</v>"); // amount given, as a number
+  // one person's report exports only that person's loans
+  await page.goto("/reports/?person=C001&range=year");
+  await expect(page.locator("#report-results h2").first()).toBeVisible();
+  const [one] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /Download Excel/ }).click()]);
+  const oneChunks: Buffer[] = [];
+  for await (const c of await one.createReadStream()) oneChunks.push(c as Buffer);
+  const oneXml = strFromU8(unzipSync(new Uint8Array(Buffer.concat(oneChunks)))["xl/worksheets/sheet1.xml"]);
+  expect(oneXml).toContain(text("Ravi Kumar"));
+  expect(oneXml).not.toContain(text("Murugan S"));
+  await admin.from("loans").update({ import_ref: null, referred_by: null }).eq("id", "LP-1024");
 });
 
 test("New Loan asks how often to collect only when the kind of loan does not already say", async ({ page }) => {

@@ -15,7 +15,8 @@ import { useSyncExternalStore } from "react";
 import { accrueDues, applyPayment, applyWaiver, buildDue, nextDueDate, openDue, type InterestPick, type PaymentInput, type PaymentResult } from "./finance/engine";
 import { buildDemoDB, type DemoDB } from "./demo-data";
 import { money, todayISO } from "./format";
-import type { Activity, AppUser, Customer, Due, ISODate, Loan, Role } from "./types";
+import { loanNoProblem } from "./loan-form";
+import type { Activity, AppUser, Customer, Due, ISODate, Loan, LoanNote, Role } from "./types";
 import { APP } from "./config";
 import { AppError, toAppError } from "./data/mappers";
 import * as remote from "./data/remote";
@@ -56,7 +57,7 @@ export interface AppState extends DemoDB {
 
 const DEFAULT_SESSION: Session = { loggedIn: false, locked: false, viewAs: "owner" };
 const DEFAULT_SETTINGS: Settings = { autoLockMinutes: 5, pin: APP.demoPin };
-const EMPTY_DB: DemoDB = { customers: [], loans: [], dues: [], payments: [], activity: [], users: [] };
+const EMPTY_DB: DemoDB = { customers: [], loans: [], dues: [], payments: [], activity: [], users: [], notes: [] };
 
 let state: AppState | null = null;
 const listeners = new Set<() => void>();
@@ -94,7 +95,8 @@ function load(): AppState {
     if (raw) {
       const saved = JSON.parse(raw) as AppState;
       // Demo data is dated relative to today: re-seed when the day changes, keep the session.
-      if (saved.seedDate === todayISO()) return { ...saved, boot: "ready", historyFrom: "0000-01-01", fullLoans: {} };
+      // (a demo saved before notes existed has none)
+      if (saved.seedDate === todayISO()) return { ...saved, notes: saved.notes ?? [], boot: "ready", historyFrom: "0000-01-01", fullLoans: {} };
       return fresh(saved.session ?? DEFAULT_SESSION, saved.settings ?? DEFAULT_SETTINGS);
     }
   } catch {
@@ -205,6 +207,7 @@ async function reloadLoans(loanIds: string[]) {
     loans: byId(s.loans, got.loans),
     dues: [...s.dues.filter((d) => !ids.has(d.loanId)), ...got.dues],
     payments: [...s.payments.filter((p) => !ids.has(p.loanId)), ...got.payments],
+    notes: [...s.notes.filter((n) => !ids.has(n.loanId)), ...got.notes],
     fullLoans: { ...s.fullLoans, ...Object.fromEntries(loanIds.map((id) => [id, true as const])) },
   }));
 }
@@ -407,6 +410,9 @@ export const actions = {
   /** Give a new loan. `key` identifies this one press of Create Loan (see receivePayment). */
   async createLoan(data: Omit<Loan, "id" | "principalLeft" | "status">, key: string): Promise<Loan> {
     const draft: Loan = { ...data, id: "", principalLeft: data.amount, status: "active" };
+    // the business's own loan number must not be one another loan has (the database checks again)
+    const taken = loanNoProblem(data.loanNo ?? "", getState().loans);
+    if (taken) throw new AppError("LOAN_NO_TAKEN", taken);
     if (LIVE) {
       const firstDue = buildDue(draft, nextDueDate(draft.startDate, draft.frequency, 1, draft.startDate), newKey());
       const loanId = await remote.createLoan(key, draft, firstDue, draft.security);
@@ -431,7 +437,11 @@ export const actions = {
     return loan;
   },
 
-  async updateLoan(loanId: string, patch: Partial<Pick<Loan, "interest" | "reference" | "frequency">>): Promise<void> {
+  async updateLoan(loanId: string, patch: Partial<Pick<Loan, "interest" | "reference" | "frequency" | "loanNo" | "referredBy">>): Promise<void> {
+    if ("loanNo" in patch) {
+      const taken = loanNoProblem(patch.loanNo ?? "", getState().loans, loanId);
+      if (taken) throw new AppError("LOAN_NO_TAKEN", taken);
+    }
     if (LIVE) {
       const loan = getState().loans.find((l) => l.id === loanId);
       if (!loan) throw new AppError("NOT_FOUND", "This loan was not found.");
@@ -448,6 +458,22 @@ export const actions = {
       loans: s.loans.map((l) => (l.id === loanId ? { ...l, ...patch } : l)),
       activity: log(s, `Edited loan ${loanId}`, "loan"),
     }));
+  },
+
+  /** A remark on a loan that is not a payment ("will pay next week"), with an optional promised date. */
+  async addLoanNote(loanId: string, text: string, promisedOn?: ISODate): Promise<void> {
+    const clean = text.trim();
+    if (!clean) throw new AppError("NOTE_NEEDED", "Type the note.");
+    if (clean.length > 500) throw new AppError("NOTE_TOO_LONG", "Keep the note under 500 letters.");
+    if (LIVE) {
+      await remote.addLoanNote(loanId, clean, promisedOn);
+      await reloadLoans([loanId]);
+      return;
+    }
+    set((s) => {
+      const note: LoanNote = { id: uid("N"), loanId, at: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss"), by: actor(s), text: clean, ...(promisedOn ? { promisedOn } : {}) };
+      return { ...s, notes: [...s.notes, note] };
+    });
   },
 
   async releaseSecurity(loanId: string): Promise<void> {

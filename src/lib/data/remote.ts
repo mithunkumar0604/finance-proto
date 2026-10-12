@@ -4,7 +4,7 @@
 
 import type { PaymentResult } from "../finance/engine";
 import { fileProblem, filePath, fileType, isPdf, latestPerSlot, MAX_FILE_BYTES } from "../files";
-import type { Activity, AppUser, Customer, Due, ISODate, Loan, Payment, Security } from "../types";
+import type { Activity, AppUser, Customer, Due, ISODate, Loan, LoanNote, Payment, Security } from "../types";
 import {
   activityFromRow,
   AppError,
@@ -15,6 +15,7 @@ import {
   dueToRow,
   loanFromRow,
   loanToRow,
+  noteFromRow,
   paymentFromRow,
   toAppError,
   userFromRow,
@@ -23,6 +24,7 @@ import { forgetSignIn, loginEmail, supabase, throwawayClient } from "./supabase"
 
 const PAGE = 1000;
 const PAYMENT_COLS = "id,loan_id,customer_id,due_id,payment_date,recorded_on,recorded_at,principal_before,interest,principal,other,method,note";
+const NOTE_COLS = "id,loan_id,at,by_name,text,promised_on";
 const DUE_COLS = "id,loan_id,due_date,interest_amount,principal_amount,paid,interest_paid,waived,last_paid_date,original_date,reschedule_reason,cancelled";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- supabase query builders are loosely typed */
@@ -157,6 +159,7 @@ export interface Book {
   payments: Payment[];
   activity: Activity[];
   users: AppUser[];
+  notes: LoanNote[];
 }
 
 async function recentActivity(): Promise<Activity[]> {
@@ -178,7 +181,7 @@ const loansFrom = (rows: any[], collateral: any[], lastPaid: any[]) => {
  */
 export async function loadBook(from: ISODate, withActivity: boolean): Promise<Book> {
   const db = supabase();
-  const [customers, loans, collateral, lastPaid, dues, payments, users, activity] = await Promise.all([
+  const [customers, loans, collateral, lastPaid, dues, payments, users, activity, notes] = await Promise.all([
     all(() => db.from("customers").select("*").order("id")),
     all(() => db.from("loans").select("*").order("id")),
     all(() => db.from("collateral").select("*").order("loan_id")),
@@ -187,6 +190,8 @@ export async function loadBook(from: ISODate, withActivity: boolean): Promise<Bo
     all(() => db.from("payments").select(PAYMENT_COLS).is("reversed_at", null).gte("payment_date", from).order("id")),
     all(() => db.from("profiles").select("*").order("created_at")),
     withActivity ? recentActivity() : Promise.resolve([]),
+    // the newest note of each loan: shown beside the customer in the collection lists
+    all(() => db.from("loan_latest_note").select(NOTE_COLS).order("loan_id")),
   ]);
   return {
     customers: customers.map(customerFromRow),
@@ -195,6 +200,7 @@ export async function loadBook(from: ISODate, withActivity: boolean): Promise<Bo
     payments: payments.map(paymentFromRow),
     activity,
     users: users.map(userFromRow),
+    notes: notes.map(noteFromRow),
   };
 }
 
@@ -209,17 +215,18 @@ export async function loadHistory(from: ISODate, before: ISODate): Promise<Pick<
 }
 
 /** Everything ever recorded on these loans, plus the loans themselves as they are now. */
-export async function loadLoans(loanIds: string[]): Promise<Pick<Book, "loans" | "dues" | "payments">> {
-  if (!loanIds.length) return { loans: [], dues: [], payments: [] };
+export async function loadLoans(loanIds: string[]): Promise<Pick<Book, "loans" | "dues" | "payments" | "notes">> {
+  if (!loanIds.length) return { loans: [], dues: [], payments: [], notes: [] };
   const db = supabase();
-  const [loans, collateral, lastPaid, dues, payments] = await Promise.all([
+  const [loans, collateral, lastPaid, dues, payments, notes] = await Promise.all([
     all(() => db.from("loans").select("*").in("id", loanIds).order("id")),
     all(() => db.from("collateral").select("*").in("loan_id", loanIds).order("loan_id")),
     all(() => db.from("loan_last_paid").select("*").in("loan_id", loanIds).order("loan_id")),
     all(() => db.from("dues").select(DUE_COLS).in("loan_id", loanIds).order("id")),
     all(() => db.from("payments").select(PAYMENT_COLS).is("reversed_at", null).in("loan_id", loanIds).order("id")),
+    all(() => db.from("loan_notes").select(NOTE_COLS).in("loan_id", loanIds).order("id")),
   ]);
-  return { loans: loansFrom(loans, collateral, lastPaid), dues: dues.map(dueFromRow), payments: payments.map(paymentFromRow) };
+  return { loans: loansFrom(loans, collateral, lastPaid), dues: dues.map(dueFromRow), payments: payments.map(paymentFromRow), notes: notes.map(noteFromRow) };
 }
 
 export const loadActivity = recentActivity;
@@ -254,7 +261,7 @@ export async function deleteCustomer(id: string): Promise<void> {
 
 export async function createLoan(
   key: string,
-  loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "interest" | "frequency" | "principalPerDue">,
+  loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "principalPerDue">,
   firstDue: Due,
   security: Security | null,
 ): Promise<string> {
@@ -305,7 +312,11 @@ export const reversePayment = (paymentId: string, reason: string) => rpc<{ loan_
 export const rescheduleDue = (dueId: string, newDate: ISODate, reason: string) =>
   rpc<null>("reschedule_due", { p_due_id: dueId, p_new_date: newDate, p_reason: reason });
 
-export const updateLoan = (loanId: string, version: number, patch: Partial<Pick<Loan, "interest" | "reference" | "frequency">>) =>
+/** A remark on a loan that is not a payment, with the day the customer promised to pay, if they did. */
+export const addLoanNote = (loanId: string, text: string, promisedOn?: ISODate) =>
+  rpc<{ id: number }>("add_loan_note", { p_loan_id: loanId, p_text: text, p_promised_on: promisedOn ?? null });
+
+export const updateLoan = (loanId: string, version: number, patch: Partial<Pick<Loan, "interest" | "reference" | "frequency" | "loanNo" | "referredBy">>) =>
   rpc<null>("update_loan", {
     p_loan_id: loanId,
     p_version: version,
@@ -313,6 +324,8 @@ export const updateLoan = (loanId: string, version: number, patch: Partial<Pick<
       ...(patch.interest ? { interest_style: patch.interest.style, interest_value: patch.interest.value, interest_method: patch.interest.method } : {}),
       ...(patch.frequency ? { frequency: patch.frequency } : {}),
       ...("reference" in patch ? { reference: patch.reference ?? "" } : {}),
+      ...("loanNo" in patch ? { loan_no: patch.loanNo ?? "" } : {}),
+      ...("referredBy" in patch ? { referred_by: patch.referredBy ?? "" } : {}),
     },
   });
 

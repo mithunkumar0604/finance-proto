@@ -18,6 +18,7 @@ import type {
   LoanType,
   Payment,
   PaymentMethod,
+  LoanNote,
   Security,
 } from "./types";
 
@@ -28,6 +29,8 @@ export interface DemoDB {
   payments: Payment[];
   activity: Activity[];
   users: AppUser[];
+  /** Remarks on loans. LIVE: the newest of each loan, plus all of them for loans opened in full. */
+  notes: LoanNote[];
 }
 
 export const DEMO_USERS: AppUser[] = [
@@ -366,7 +369,7 @@ export function buildDemoDB(today: ISODate): DemoDB {
     dues.push(...loanDues);
   }
 
-  return { customers, loans, dues, payments, activity: seedActivity(today), users: DEMO_USERS };
+  return { customers, loans, dues, payments, activity: seedActivity(today), users: DEMO_USERS, notes: [] };
 }
 
 function seedActivity(today: ISODate): Activity[] {

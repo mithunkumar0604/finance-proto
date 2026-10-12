@@ -497,6 +497,133 @@ describe("who can do what", () => {
   });
 });
 
+describe("the business's own loan number, and who referred the customer", () => {
+  const no = () => String(Math.floor(100000 + Math.random() * 899999));
+
+  it("are saved with a new loan and read back", async () => {
+    const customerId = await addCustomer(owner.db, "Numbered Loan");
+    const n = no();
+    const res = await giveLoan(owner.db, { ...monthly(customerId), loanNo: ` ${n} `, referredBy: "  Suresh  " });
+    expect(res.error).toBeNull();
+    const { loan } = await readLoan(owner.db, res.data.loan_id);
+    expect(loan).toMatchObject({ loanNo: n, referredBy: "Suresh" });
+    const log = (await owner.db.from("activity").select("text").eq("loan_id", res.data.loan_id).eq("kind", "loan").single()).data!;
+    expect(log.text).toContain(`(No. ${n})`);
+  });
+
+  it("are optional: a loan without them is saved as before", async () => {
+    const { loanId } = await newLoan();
+    const { loan } = await readLoan(owner.db, loanId);
+    expect(loan.loanNo).toBeUndefined();
+    expect(loan.referredBy).toBeUndefined();
+  });
+
+  it("a loan number can be used once only: a second loan with it is refused and nothing is saved", async () => {
+    const customerId = await addCustomer(owner.db, "Twice");
+    const n = `AB${no()}`;
+    const first = await giveLoan(owner.db, { ...monthly(customerId), loanNo: n });
+    expect(first.error).toBeNull();
+    for (const same of [n, n.toLowerCase(), `  ${n}  `]) {
+      const again = await giveLoan(owner.db, { ...monthly(customerId), loanNo: same });
+      expect(codeOf(again)).toBe("LOAN_NO_TAKEN");
+      expect(again.error!.message).toContain(first.data.loan_id);
+    }
+    expect((await admin.from("loans").select("id").eq("customer_id", customerId)).data).toHaveLength(1);
+    // pressing Create twice for the SAME loan is still one loan, not a "number taken" error
+    const key = randomUUID();
+    const n2 = no();
+    const a = await giveLoan(owner.db, { ...monthly(customerId), loanNo: n2 }, key);
+    const b = await giveLoan(owner.db, { ...monthly(customerId), loanNo: n2 }, key);
+    expect(a.error).toBeNull();
+    expect(b.data).toMatchObject({ duplicate: true, loan_id: a.data.loan_id });
+  });
+
+  it("two people saving the same number at the same moment: one loan is saved", async () => {
+    const customerId = await addCustomer(owner.db, "Same Moment");
+    const n = no();
+    const both = await Promise.all([giveLoan(owner.db, { ...monthly(customerId), loanNo: n }), giveLoan(owner.db, { ...monthly(customerId), loanNo: n })]);
+    expect(both.filter((r) => !r.error)).toHaveLength(1);
+    expect(codeOf(both.find((r) => r.error)!)).toBe("LOAN_NO_TAKEN");
+    expect((await admin.from("loans").select("id").eq("customer_id", customerId)).data).toHaveLength(1);
+  });
+
+  it("can be changed later by the owner; a number another loan has is refused", async () => {
+    const a = await newLoan();
+    const b = await newLoan();
+    const n = no();
+    const edit = (id: string, version: number, patch: Record<string, unknown>, who = owner) => who.db.rpc("update_loan", { p_loan_id: id, p_version: version, p_patch: patch });
+    expect((await edit(a.loanId, 1, { loan_no: n, referred_by: "Kumar" })).error).toBeNull();
+    expect((await readLoan(owner.db, a.loanId)).loan).toMatchObject({ loanNo: n, referredBy: "Kumar", version: 2 });
+    expect(codeOf(await edit(b.loanId, 1, { loan_no: n }))).toBe("LOAN_NO_TAKEN");
+    // saving a loan again with its own number is fine; other edits leave the number alone
+    expect((await edit(a.loanId, 2, { loan_no: n })).error).toBeNull();
+    expect((await edit(a.loanId, 3, { reference: "Shop" })).error).toBeNull();
+    expect((await readLoan(owner.db, a.loanId)).loan).toMatchObject({ loanNo: n, referredBy: "Kumar", reference: "Shop" });
+    // clearing both
+    expect((await edit(a.loanId, 4, { loan_no: "", referred_by: "" })).error).toBeNull();
+    const cleared = (await readLoan(owner.db, a.loanId)).loan;
+    expect(cleared.loanNo).toBeUndefined();
+    expect(cleared.referredBy).toBeUndefined();
+    expect(codeOf(await edit(a.loanId, 5, { loan_no: "X" }, staff))).toBe("NOT_ALLOWED");
+    const log = (await owner.db.from("activity").select("data").eq("loan_id", a.loanId).eq("kind", "loan").order("id", { ascending: false }).limit(1).single()).data!;
+    expect(log.data.before).toMatchObject({ loan_no: n, referred_by: "Kumar" });
+  });
+});
+
+describe("notes on a loan", () => {
+  const add = (who: TestUser, loanId: string, text: string, promised: string | null = null) => who.db.rpc("add_loan_note", { p_loan_id: loanId, p_text: text, p_promised_on: promised });
+
+  it("anyone who can see the loan adds a note; it is kept with who and when, and changes no amount", async () => {
+    const { loanId } = await newLoan(rupees(100000), collector.id);
+    const before = await readLoan(owner.db, loanId);
+    expect((await add(owner, loanId, "  Will pay next week  ", shift(TODAY, 7))).error).toBeNull();
+    expect((await add(collector, loanId, "Shop was shut")).error).toBeNull();
+    expect((await add(staff, loanId, "Called, no answer")).error).toBeNull();
+    const notes = (await owner.db.from("loan_notes").select("text,by_name,promised_on,customer_id").eq("loan_id", loanId).order("id")).data!;
+    expect(notes).toEqual([
+      { text: "Will pay next week", by_name: "Test Owner", promised_on: shift(TODAY, 7), customer_id: before.loan.customerId },
+      { text: "Shop was shut", by_name: "Test Collector", promised_on: null, customer_id: before.loan.customerId },
+      { text: "Called, no answer", by_name: "Test Staff", promised_on: null, customer_id: before.loan.customerId },
+    ]);
+    const after = await readLoan(owner.db, loanId);
+    expect({ ...after.loan }).toEqual({ ...before.loan });
+    expect(after.dues).toEqual(before.dues);
+    // the newest one is what the lists show
+    const latest = (await collector.db.from("loan_latest_note").select("text").eq("loan_id", loanId)).data!;
+    expect(latest).toEqual([{ text: "Called, no answer" }]);
+  });
+
+  it("a collector cannot add to, or read, the notes of another collector's customer", async () => {
+    const { loanId } = await newLoan(rupees(100000), collector.id);
+    expect((await add(owner, loanId, "Private remark")).error).toBeNull();
+    expect(codeOf(await add(otherCollector, loanId, "x"))).toBe("NOT_ALLOWED");
+    expect((await otherCollector.db.from("loan_notes").select("id").eq("loan_id", loanId)).data).toEqual([]);
+    expect((await otherCollector.db.from("loan_latest_note").select("id").eq("loan_id", loanId)).data).toEqual([]);
+    expect((await anon.from("loan_notes").select("id")).data ?? []).toEqual([]);
+    expect((await anon.rpc("add_loan_note", { p_loan_id: loanId, p_text: "x", p_promised_on: null })).error).not.toBeNull();
+  });
+
+  it("refuses an empty note, one that is too long, and a promised date in the past", async () => {
+    const { loanId } = await newLoan();
+    expect(codeOf(await add(owner, loanId, "   "))).toBe("NOTE_NEEDED");
+    expect(codeOf(await add(owner, loanId, "x".repeat(501)))).toBe("NOTE_TOO_LONG");
+    expect(codeOf(await add(owner, loanId, "Promised", shift(TODAY, -1)))).toBe("INVALID_DATE");
+    expect(codeOf(await add(owner, "LP-99999999", "x"))).toBe("NOT_FOUND");
+    expect((await add(owner, loanId, "Promised today", TODAY)).error).toBeNull();
+  });
+
+  it("a note cannot be written, changed or removed except through the app's own step", async () => {
+    const { loanId, customerId } = await newLoan();
+    expect((await add(owner, loanId, "As said")).error).toBeNull();
+    const row = (await admin.from("loan_notes").select("id").eq("loan_id", loanId).single()).data!;
+    expect((await owner.db.from("loan_notes").insert({ loan_id: loanId, customer_id: customerId, text: "slipped in" })).error).not.toBeNull();
+    await owner.db.from("loan_notes").update({ text: "changed" }).eq("id", row.id);
+    await owner.db.from("loan_notes").delete().eq("id", row.id);
+    expect((await admin.from("loan_notes").update({ text: "changed" }).eq("id", row.id)).error?.message).toMatch(/HISTORY_LOCKED/);
+    expect((await admin.from("loan_notes").select("text").eq("loan_id", loanId)).data).toEqual([{ text: "As said" }]);
+  });
+});
+
 describe("amounts in the activity list", () => {
   it("are written the Indian way: ₹1,00,000, not ₹100,000", async () => {
     const text = async (p: number) => (await admin.rpc("rupee_text", { p })).data;

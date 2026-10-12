@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 8 October 2026.
+Last updated: 12 October 2026.
 
 ## Where things stand
 
@@ -191,6 +191,28 @@ static export; project `finance-proto`, connected to the `production` branch).
   off builds for non-production branches. The live site is not affected either way.
 - **To do by hand in the Supabase dashboard:** turn on "Require current password when
   updating" if offered (see `ENVIRONMENT.md`), and "Leaked password protection".
+
+## Client feedback, 12 October 2026 (from their paper ledger)
+
+The client keeps a ledger with one line per loan: date given, their own loan number,
+name, who referred the customer, a date, a remark, the collection amount, phone. Added:
+
+- **Loan No.** on New Loan and Edit Loan: the business's own number (their book's
+  serial). The next number is suggested and can be changed; it must be unique (the
+  database refuses a number another loan has). It is stored in `loans.import_ref`, the
+  same column an import fills from `loan_ref`, so imported and new loans share one
+  numbering. The app's id (LP-1001) stays the key. Search finds a loan by it.
+- **Referred By** on New Loan and Edit Loan (per loan), suggesting names already used.
+- **Notes** on a loan: dated remarks that are not a payment ("will pay next week"),
+  with an optional promised date. Anyone who can see the loan can add one; notes are
+  not edited. The newest note shows beside the customer in Collections.
+- **Download Excel** beside Download PDF in Reports: a real .xlsx, one row per loan,
+  columns Given Date, Loan No., Name, Referred By, Phone, Date (last paid), Note,
+  Payment (interest of one collection), Amount, then where the loan stands.
+- **Fixed:** New Loan crashed when Percentage was tapped after picking Weekly (the
+  fixed rupee amount was read as a percentage), or when any percentage over 100 was typed.
+- Not done: the import sheet has no "referred by" column yet (the loan number comes in
+  through `loan_ref`).
 
 ## Needed to go live (all done; kept for the record)
 

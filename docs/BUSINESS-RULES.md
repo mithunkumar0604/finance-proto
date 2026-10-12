@@ -39,6 +39,18 @@ All amounts are whole paise. Nothing is stored or added as a decimal number.
 - Waiving: the owner only. Full Settlement → "− Waive", or More options → Adjustment →
   "− Waive interest". The reason goes in Notes and is required.
 
+## The business's own loan number, referrer and notes (12 October 2026)
+
+- A loan may carry the business's **own number** (their ledger's serial). It is
+  optional, unique, and can be changed later by the owner. The app suggests the highest
+  number used so far plus one.
+- **Referred by** is recorded per loan, as their ledger does.
+- A **note** is a remark, optionally with the day the customer promised to pay. It
+  never changes an amount, a due date or a status, and is not required for a payment.
+- In the Excel sheet, "Date" is the day interest was last paid, "Payment" is the
+  interest of one collection as the loan stands now, and "Amount" is the money given.
+  (Confirmed by the owner's representative on 12 October 2026.)
+
 ## Correcting a wrong payment (5 October 2026)
 
 - There is no "edit payment". The owner uses **Delete Payment** and enters it again.

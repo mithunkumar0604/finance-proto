@@ -36,6 +36,7 @@ export function LoanCard({ loan, view, today }: { loan: Loan; view: ReturnType<t
         <div>
           <p className="text-[17px] font-bold">Loan {loan.id}</p>
           <p className="text-[13px] text-muted">
+            {loan.loanNo ? `No. ${loan.loanNo} · ` : ""}
             {LOAN_TYPE_LABEL[loan.type]} · Started {dLong(loan.startDate)}
           </p>
         </div>

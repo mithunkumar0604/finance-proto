@@ -1,7 +1,7 @@
 // Database rows <-> the types the screens use. Pure functions, no network.
 
 import { format } from "date-fns";
-import type { Activity, AppUser, Customer, Due, Loan, Payment, Security } from "../types";
+import type { Activity, AppUser, Customer, Due, Loan, Payment, Security, LoanNote } from "../types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- rows arrive as untyped JSON */
 type Row = Record<string, any>;
@@ -69,6 +69,8 @@ export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPai
     amount: Number(r.amount),
     startDate: r.start_date,
     reference: opt(r.reference),
+    ...(r.import_ref ? { loanNo: r.import_ref } : {}),
+    ...(r.referred_by ? { referredBy: r.referred_by } : {}),
     interest: { style: r.interest_style, value: Number(r.interest_value), method: r.interest_method },
     frequency: r.frequency,
     principalPerDue: Number(r.principal_per_due),
@@ -82,19 +84,25 @@ export function loanFromRow(r: Row, collateral: Row | undefined, lastInterestPai
   };
 }
 
-export function loanToRow(l: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "interest" | "frequency" | "principalPerDue">): Row {
+export function loanToRow(l: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "principalPerDue">): Row {
   return {
     customer_id: l.customerId,
     type: l.type,
     amount: l.amount,
     start_date: l.startDate,
     reference: l.reference ?? null,
+    loan_no: l.loanNo?.trim() || null,
+    referred_by: l.referredBy?.trim() || null,
     interest_style: l.interest.style,
     interest_value: l.interest.value,
     interest_method: l.interest.method,
     frequency: l.frequency,
     principal_per_due: l.principalPerDue,
   };
+}
+
+export function noteFromRow(r: Row): LoanNote {
+  return { id: String(r.id), loanId: r.loan_id, at: r.at, by: r.by_name ?? "", text: r.text, ...(r.promised_on ? { promisedOn: r.promised_on } : {}) };
 }
 
 export function dueFromRow(r: Row): Due {

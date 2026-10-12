@@ -35,7 +35,7 @@ row for each kind of loan. One row is one loan. Columns may be in any order.
 | `customer_name` | Required |
 | `phone` | Optional. 10-digit mobile. Contact information, not identity |
 | `alt_phone`, `area`, `address`, `id_ref`, `notes` | Optional |
-| `loan_ref` | Optional. The client's own number for the loan. Stops it being imported twice |
+| `loan_ref` | Optional. The client's own number for the loan. Stops it being imported twice, and becomes the loan's **Loan No.** in the app |
 | `loan_type` | `weekly`, `monthly`, `15day`, `30day`, `vehicle`, `jewel` or `custom` |
 | `loan_amount` | Money first given, in rupees (`2,00,000` is fine) |
 | `principal_left` | Principal still owed today |
