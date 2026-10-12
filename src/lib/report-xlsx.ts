@@ -99,7 +99,8 @@ export function workbookFiles(sheet: Sheet): Record<string, string> {
       `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
       `<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
       `<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
-      `</cellXfs></styleSheet>`,
+      `</cellXfs>` +
+      `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
     "xl/worksheets/sheet1.xml": sheetXml(sheet),
   };
 }
