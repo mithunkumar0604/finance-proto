@@ -4,6 +4,7 @@ import { CalendarCheck2, PartyPopper } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { DueList } from "@/components/collections/due-row";
+import { PrintSheetButton } from "@/components/collections/print-sheet";
 import { PageHeader } from "@/components/layout/page-header";
 import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Card, EmptyState, FilterChips, Segmented, Skeleton } from "@/components/ui/bits";
@@ -54,7 +55,7 @@ function Collections() {
 
   return (
     <div>
-      <PageHeader title="Collections" subtitle={dHeading(today)} back={false} />
+      <PageHeader title="Collections" subtitle={dHeading(today)} back={false} actions={<PrintSheetButton />} />
 
       <Segmented
         value={tab}

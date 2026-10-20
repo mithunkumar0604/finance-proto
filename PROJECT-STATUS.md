@@ -1,7 +1,7 @@
 # LedgerPro — Project Status
 
 A handover note for anyone (person or AI assistant) picking this project up.
-Last updated: 12 October 2026.
+Last updated: 20 October 2026.
 
 ## Where things stand
 
@@ -217,6 +217,12 @@ name, who referred the customer, a date, a remark, the collection amount, phone.
   added by the app when the date passes; it shows as overdue for the same amount. Part
   payments, moving the date, waiving and deleting a payment work as on any loan.
   (Before, Custom silently put the first collection 30 days out and repeated.)
+- **Print Sheet** in Collections (20 October 2026): the day's collection list as an A4
+  PDF, like the client's own printed sheet. One row per loan with something to collect
+  by that date (that day plus overdue): Given, Loan No., Name with the item, Notes ("Due
+  since …" and the latest note), Expected, then blank Date and Amount to write in, and
+  Phone. Ordered by area, a customer's loans together, by loan number; 3 blank rows at
+  the end. A collector's sheet has only their customers.
 - Not done: the import sheet has no "referred by" column yet (the loan number comes in
   through `loan_ref`).
 

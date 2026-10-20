@@ -797,6 +797,37 @@ test("Custom is a one-time loan: the owner picks the return date, it is collecte
   expect(errors).toEqual([]);
 });
 
+test("Collections prints the day's collection sheet: loan number, name, latest note, expected amount, blank Date and Amount", async ({ page }) => {
+  // a loan that is behind today, whichever it is by now in this shared test book
+  const { data: late } = await admin.from("dues").select("loan_id, loans!inner(status)").eq("loans.status", "active").lt("due_date", TODAY).gt("remaining", 0).eq("cancelled", false).order("loan_id").limit(1).single();
+  const behind = await loanRow(late!.loan_id);
+  const { data: who } = await admin.from("customers").select("name").eq("id", behind.customer_id).single();
+  const no = String(90000 + (Date.now() % 9999));
+  expect((await admin.from("loans").update({ import_ref: no }).eq("id", behind.id)).error).toBeNull();
+  await signInOwner(page);
+  await page.goto("/collections/");
+  await page.getByRole("button", { name: "Print Sheet" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByLabel("Sheet for")).toHaveValue(TODAY);
+  await expect(sheet).toContainText("loans to collect by that day");
+  await page.screenshot({ path: "test-results/print-sheet.png" });
+  const [download] = await Promise.all([page.waitForEvent("download"), sheet.getByRole("button", { name: /Download PDF/ }).click()]);
+  expect(download.suggestedFilename()).toBe(`Collection sheet ${TODAY}.pdf`);
+  await download.saveAs("test-results/collection-sheet.pdf");
+  const chunks: Buffer[] = [];
+  for await (const c of await download.createReadStream()) chunks.push(c as Buffer);
+  const pdf = Buffer.concat(chunks).toString("latin1");
+  expect(pdf.startsWith("%PDF-")).toBe(true);
+  const d = TODAY.split("-");
+  expect(pdf).toContain(`DATE - ${d[2]}.${d[1]}.${d[0].slice(2)}`);
+  for (const head of ["Given", "Loan No.", "Name", "Notes", "Expected", "Date", "Amount", "Phone"]) expect(pdf).toContain(`(${head})`);
+  // that loan is on the sheet, with its number, its customer, and how long it has been due
+  expect(pdf).toContain(`(${no})`);
+  expect(pdf).toContain(who!.name);
+  expect(pdf).toContain("Due since");
+  await admin.from("loans").update({ import_ref: null }).eq("id", behind.id);
+});
+
 test("New Loan asks how often to collect only when the kind of loan does not already say", async ({ page }) => {
   await signInOwner(page);
   const toInterestStep = async (kind: string) => {
