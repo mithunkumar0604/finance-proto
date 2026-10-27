@@ -29,7 +29,7 @@ export async function downloadCollectionSheet(sheet: CollectionSheet): Promise<v
     pdf.setFont("helvetica", "bold").setFontSize(16).setTextColor(...INK);
     pdf.text(`DATE - ${shortDate(sheet.date).replace(/\//g, ".")}`, W / 2, 14, { align: "center" });
     pdf.setFont("helvetica", "normal").setFontSize(8.5).setTextColor(...MUTED);
-    pdf.text(APP.name, M, 14);
+    pdf.text(APP.owner.business, M, 14);
     pdf.text(`${sheet.rows.length} loan${sheet.rows.length === 1 ? "" : "s"} · Rs. ${rupeeDigits(sheet.total)} expected`, W - M, 14, { align: "right" });
   };
 
