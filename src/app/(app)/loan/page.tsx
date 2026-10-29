@@ -1,11 +1,12 @@
 "use client";
 
-import { CalendarClock, CircleCheckBig, FileX2, HandCoins, Info, PencilLine, Unlock } from "lucide-react";
+import { CalendarClock, CircleCheckBig, FileX2, HandCoins, Info, PencilLine, Trash2, Unlock } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { useUI } from "@/components/layout/ui-context";
+import { DeleteLoansSheet } from "@/components/loans/delete-loans-sheet";
 import { HEALTH_META } from "@/components/loans/loan-card";
 import { LoanNotes } from "@/components/loans/loan-notes";
 import { LoanTimeline } from "@/components/loans/loan-timeline";
@@ -20,7 +21,7 @@ import { DEFAULT_DELETE_REASON, deletablePayment, deleteReason } from "@/lib/del
 import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { interestProblem, loanNoProblem, referrers, switchInterestStyle } from "@/lib/loan-form";
-import { loanView, permissions } from "@/lib/selectors";
+import { currentUser, loanView, permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useLoanHistory } from "@/lib/use-history";
 import { useSave } from "@/lib/use-save";
@@ -42,6 +43,8 @@ function LoanDetails() {
   const perm = permissions(s);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState<Payment | null>(null);
+  const [deletingLoan, setDeletingLoan] = useState(false);
+  const router = useRouter();
   const { busy, run } = useSave();
   useLoanHistory(id ? [id] : []);
   const loan = s.loans.find((l) => l.id === id);
@@ -64,6 +67,8 @@ function LoanDetails() {
   const schedule = loanSchedule(loan, s.dues.filter((d) => d.loanId === loan.id && !d.cancelled));
   // LIVE, owner only: the payment entered last can be deleted (the database enforces both).
   const deletableId = LIVE && perm.role === "owner" ? deletablePayment(v.payments)?.id : undefined;
+  // LIVE, admin only: the whole loan can be deleted (the database checks the admin mark too).
+  const isAdmin = LIVE && !!currentUser(s)?.isAdmin;
 
   return (
     <div>
@@ -196,6 +201,11 @@ function LoanDetails() {
         {/* Remarks: anyone who can see the loan can add one */}
         <div className="lg:col-start-1">
           <LoanNotes loanId={loan.id} notes={(s.notes ?? []).filter((n) => n.loanId === loan.id)} />
+          {isAdmin && (
+            <Button variant="danger" size="lg" className="mt-5 w-full" onClick={() => setDeletingLoan(true)}>
+              <Trash2 className="size-5" /> Delete Loan
+            </Button>
+          )}
         </div>
 
         {/* Timeline */}
@@ -209,6 +219,7 @@ function LoanDetails() {
 
       {editing && <EditLoanSheet loan={loan} onClose={() => setEditing(false)} />}
       {deleting && <DeletePaymentSheet payment={deleting} onClose={() => setDeleting(null)} />}
+      {deletingLoan && <DeleteLoansSheet ids={[loan.id]} onClose={() => setDeletingLoan(false)} onDeleted={() => router.replace("/loans/")} />}
     </div>
   );
 }

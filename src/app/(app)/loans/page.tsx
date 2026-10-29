@@ -1,17 +1,18 @@
 "use client";
 
-import { Landmark, Plus } from "lucide-react";
+import { Landmark, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import { DeleteLoansSheet } from "@/components/loans/delete-loans-sheet";
 import { HEALTH_META } from "@/components/loans/loan-card";
 import { Avatar, Card, Chip, EmptyState, FilterChips, Segmented } from "@/components/ui/bits";
-import { LinkButton } from "@/components/ui/button";
+import { Button, LinkButton } from "@/components/ui/button";
 import { dueRemaining } from "@/lib/finance/engine";
 import { dRelative, LOAN_TYPE_SHORT, money, todayISO } from "@/lib/format";
-import { loanView, permissions, TYPE_GROUPS } from "@/lib/selectors";
-import { useAppState } from "@/lib/store";
+import { currentUser, loanView, permissions, TYPE_GROUPS } from "@/lib/selectors";
+import { LIVE, useAppState } from "@/lib/store";
 
 type Tab = "active" | "due" | "overdue" | "closed";
 
@@ -22,6 +23,16 @@ export default function LoansPage() {
   const perm = permissions(s);
   const [tab, setTab] = useState<Tab>("active");
   const [type, setType] = useState("all");
+  // LIVE, admin only: pick loans to delete (the database checks the admin mark too)
+  const isAdmin = LIVE && !!currentUser(s)?.isAdmin;
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const stopSelecting = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
 
   const customers = new Map(s.customers.map((c) => [c.id, c]));
   const all = s.loans
@@ -45,10 +56,19 @@ export default function LoansPage() {
         subtitle={`${tabCount("active")} active · ${money(all.filter((x) => x.loan.status === "active").reduce((a, x) => a + x.loan.principalLeft, 0))} outside`}
         back={false}
         actions={
-          perm.createLoan && (
-            <LinkButton href="/loans/new/" size="sm" variant="soft">
-              <Plus className="size-4" /> New
-            </LinkButton>
+          (isAdmin || perm.createLoan) && (
+            <>
+              {isAdmin && (
+                <Button size="sm" variant="secondary" onClick={() => (selecting ? stopSelecting() : setSelecting(true))}>
+                  {selecting ? "Cancel" : "Select"}
+                </Button>
+              )}
+              {perm.createLoan && !selecting && (
+                <LinkButton href="/loans/new/" size="sm" variant="soft">
+                  <Plus className="size-4" /> New
+                </LinkButton>
+              )}
+            </>
           )
         }
       />
@@ -80,9 +100,12 @@ export default function LoansPage() {
           <div className="mt-4 space-y-2.5 md:hidden">
             {list.map(({ loan, customer, v }) => {
               const h = HEALTH_META[v.health];
-              return (
-                <Link key={loan.id} href={`/loan/?id=${loan.id}`} className="block rounded-3xl border border-line bg-surface p-4 active:scale-[0.99]">
+              const body = (
+                <>
                   <div className="flex items-center gap-3">
+                    {selecting && (
+                      <input type="checkbox" checked={picked.includes(loan.id)} onChange={() => toggle(loan.id)} aria-label={`Select ${loan.id}`} className="size-5 shrink-0 accent-brand-700" />
+                    )}
                     <Avatar name={customer.name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-bold">{customer.name}</p>
@@ -103,6 +126,15 @@ export default function LoansPage() {
                       tone={v.health === "overdue" ? "text-rose-700" : undefined}
                     />
                   </div>
+                </>
+              );
+              return selecting ? (
+                <label key={loan.id} className="block cursor-pointer rounded-3xl border border-line bg-surface p-4">
+                  {body}
+                </label>
+              ) : (
+                <Link key={loan.id} href={`/loan/?id=${loan.id}`} className="block rounded-3xl border border-line bg-surface p-4 active:scale-[0.99]">
+                  {body}
                 </Link>
               );
             })}
@@ -113,6 +145,7 @@ export default function LoansPage() {
             <table className="w-full text-left text-[15px]">
               <thead className="border-b border-line bg-line-2/60 text-xs font-bold tracking-[0.06em] text-muted uppercase">
                 <tr>
+                  {selecting && <th className="w-0 py-3 pl-5" aria-label="Select" />}
                   <th className="px-5 py-3">Customer</th>
                   <th className="px-3 py-3">Loan</th>
                   <th className="px-3 py-3 text-right">Original</th>
@@ -125,7 +158,19 @@ export default function LoansPage() {
                 {list.map(({ loan, customer, v }) => {
                   const h = HEALTH_META[v.health];
                   return (
-                    <tr key={loan.id} onClick={() => router.push(`/loan/?id=${loan.id}`)} className="cursor-pointer hover:bg-line-2/50">
+                    <tr key={loan.id} onClick={() => (selecting ? toggle(loan.id) : router.push(`/loan/?id=${loan.id}`))} className="cursor-pointer hover:bg-line-2/50">
+                      {selecting && (
+                        <td className="py-3 pl-5">
+                          <input
+                            type="checkbox"
+                            checked={picked.includes(loan.id)}
+                            onChange={() => toggle(loan.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`Select ${loan.id}`}
+                            className="size-5 accent-brand-700"
+                          />
+                        </td>
+                      )}
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
                           <Avatar name={customer.name} size="sm" />
@@ -160,6 +205,24 @@ export default function LoansPage() {
             </table>
           </Card>
         </>
+      )}
+
+      {selecting && (
+        <div className="sticky bottom-[calc(80px+env(safe-area-inset-bottom))] z-10 -mx-4 mt-5 bg-gradient-to-t from-canvas from-70% to-transparent px-4 pt-6 pb-3 md:bottom-0 md:mx-0 md:px-0 md:pb-6">
+          <Button size="lg" variant="danger" className="w-full" disabled={!picked.length} onClick={() => setConfirming(true)}>
+            <Trash2 className="size-5" /> Delete Selected ({picked.length})
+          </Button>
+        </div>
+      )}
+      {confirming && (
+        <DeleteLoansSheet
+          ids={picked}
+          onClose={() => setConfirming(false)}
+          onDeleted={() => {
+            setConfirming(false);
+            stopSelecting();
+          }}
+        />
       )}
     </div>
   );

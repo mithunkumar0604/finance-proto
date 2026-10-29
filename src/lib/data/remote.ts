@@ -259,6 +259,18 @@ export async function deleteCustomer(id: string): Promise<void> {
   await rpc<null>("delete_customer", { p_customer_id: id });
 }
 
+/**
+ * Admin: delete loans entered by mistake, all or none, with everything attached to them
+ * (collections, payments, waivers, security, notes). The customers stay. The database
+ * keeps a full copy in one "Deleted loan …" activity entry per loan and returns the
+ * security photos it held; those are removed here, after the delete.
+ */
+export async function deleteLoans(ids: string[]): Promise<void> {
+  const res = await rpc<{ deleted: string[]; files: string[] }>("delete_loans", { p_ids: ids });
+  // the loans are already deleted: a photo left behind must not be reported as "not deleted"
+  if (res.files.length) await supabase().storage.from(BUCKET).remove(res.files).catch(() => {});
+}
+
 export async function createLoan(
   key: string,
   loan: Pick<Loan, "customerId" | "type" | "amount" | "startDate" | "reference" | "loanNo" | "referredBy" | "interest" | "frequency" | "returnDate" | "principalPerDue">,

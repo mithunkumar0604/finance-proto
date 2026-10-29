@@ -407,6 +407,25 @@ export const actions = {
     set((s) => ({ ...s, customers: s.customers.filter((c) => c.id !== id), activity: log(s, `Deleted customer ${s.customers.find((c) => c.id === id)?.name ?? ""} (${id})`, "customer") }));
   },
 
+  /**
+   * LIVE, admin: delete loans entered by mistake, all or none, with their collections,
+   * payments, security and notes. The customers stay. Throws AppError with words to show.
+   */
+  async deleteLoans(ids: string[]): Promise<void> {
+    if (!LIVE) throw new AppError("NOT_ALLOWED", "Loans can be deleted only in the live app.");
+    await remote.deleteLoans(ids);
+    const gone = new Set(ids);
+    set((s) => ({
+      ...s,
+      loans: s.loans.filter((l) => !gone.has(l.id)),
+      dues: s.dues.filter((d) => !gone.has(d.loanId)),
+      payments: s.payments.filter((p) => !gone.has(p.loanId)),
+      notes: s.notes.filter((n) => !gone.has(n.loanId)),
+      fullLoans: Object.fromEntries(Object.entries(s.fullLoans).filter(([id]) => !gone.has(id))),
+    }));
+    refreshActivity();
+  },
+
   /** Give a new loan. `key` identifies this one press of Create Loan (see receivePayment). */
   async createLoan(data: Omit<Loan, "id" | "principalLeft" | "status">, key: string): Promise<Loan> {
     const draft: Loan = { ...data, id: "", principalLeft: data.amount, status: "active" };

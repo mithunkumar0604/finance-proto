@@ -2,7 +2,8 @@
 // The tests run in order and share one database, like a working day.
 
 import { expect, test, type Page } from "@playwright/test";
-import { admin, ANON, URL as API } from "../db/helpers";
+import { createClient } from "@supabase/supabase-js";
+import { admin, ANON, giveLoan, pay, URL as API } from "../db/helpers";
 
 const PASSWORD = "ledger-local-1";
 const OWNER = "98000 12345";
@@ -959,6 +960,97 @@ test("the owner can delete a customer who has no loans, but not one who has", as
   await expect(page.locator("main")).toContainText(`Deleted customer ${name} (${made!.id})`);
 });
 
+/** A customer with `n` fresh loans, given by the local owner through the database functions. */
+async function customerWithLoans(name: string, n: number) {
+  const db = createClient(API, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+  expect((await db.auth.signInWithPassword({ email: `${OWNER.replace(/\D/g, "")}@ledgerpro.invalid`, password: PASSWORD })).error).toBeNull();
+  const { data: c } = await admin.from("customers").insert({ name, phone: "9000066666", area: "Nowhere" }).select("id").single();
+  const ids: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const res = await giveLoan(db, {
+      customerId: c!.id,
+      type: "monthly",
+      amount: 5000000,
+      startDate: shift(TODAY, -35),
+      interest: { style: "percent", value: 3, method: "reducing" },
+      frequency: "monthly",
+      principalPerDue: 0,
+    });
+    expect(res.error).toBeNull();
+    ids.push(res.data.loan_id);
+  }
+  return { db, customerId: c!.id as string, ids };
+}
+
+test("an admin deletes a loan from its page, typing DELETE to confirm; the customer stays", async ({ page }) => {
+  const name = `Del Loan ${Date.now() % 100000}`;
+  const { db, customerId, ids } = await customerWithLoans(name, 1);
+  const [id] = ids;
+  expect((await pay(db, id, { date: TODAY, interest: 150000, principal: 0, other: 0 })).error).toBeNull();
+  await admin.storage.from("documents").upload(`${id}/front-${Date.now()}.png`, PNG, { contentType: "image/png" });
+
+  await signInOwner(page); // the local owner is an admin
+  await openLoan(page, id);
+  await page.locator("main").getByRole("button", { name: "Delete Loan" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("Delete this loan?");
+  await expect(sheet).toContainText(name);
+  await expect(sheet).toContainText("1 payment");
+  await expect(sheet).toContainText("₹1,500 received");
+  await expect(sheet).toContainText("This cannot be undone. All payments, interest, jewel details and notes of these loans are deleted. The customers stay.");
+  const confirm = sheet.getByRole("button", { name: "Delete Loan" });
+  await expect(confirm).toBeDisabled();
+  await sheet.getByLabel("Type DELETE to confirm").fill("delete");
+  await expect(confirm).toBeDisabled();
+  await sheet.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await page.screenshot({ path: "test-results/delete-loan.png" });
+  await confirm.click();
+  await expect(page.getByText("Loan deleted")).toBeVisible();
+  await page.waitForURL(/loans\/$/);
+  await expect(page.locator("main")).not.toContainText(name);
+
+  expect((await admin.from("loans").select("id").eq("id", id)).data).toEqual([]);
+  expect((await admin.from("payments").select("id").eq("loan_id", id)).data).toEqual([]);
+  expect((await admin.from("customers").select("id").eq("id", customerId)).data).toHaveLength(1);
+  expect(await filesOf(id)).toEqual([]);
+  await page.goto("/activity/");
+  await expect(page.locator("main")).toContainText(`Deleted loan ${id} of ${name}, ₹50,000, 1 payment`);
+  await expectClean(page, "activity after delete loan");
+});
+
+test("an admin selects two loans on the Loans list and deletes both at once", async ({ page }) => {
+  const name = `Bulk Del ${Date.now() % 100000}`;
+  const { customerId, ids } = await customerWithLoans(name, 3);
+  const [a, b, keep] = ids;
+  await signInOwner(page);
+  await page.goto("/loans/");
+  await page.getByRole("button", { name: "Select" }).click();
+  await page.getByRole("checkbox", { name: `Select ${a}` }).check();
+  await page.getByRole("checkbox", { name: `Select ${b}` }).check();
+  await page.getByRole("button", { name: "Delete Selected (2)" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet).toContainText("Delete 2 loans?");
+  await expect(sheet).toContainText(a);
+  await expect(sheet).toContainText(b);
+  await expect(sheet).not.toContainText(keep);
+  await sheet.getByLabel("Type DELETE to confirm").fill("DELETE");
+  await page.screenshot({ path: "test-results/delete-loans.png" });
+  await sheet.getByRole("button", { name: "Delete 2 Loans" }).click();
+  await expect(page.getByText("Deleted 2 loans")).toBeVisible();
+  // select mode ends; the list no longer has them
+  await expect(page.getByRole("button", { name: "Select" })).toBeVisible();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  expect((await admin.from("loans").select("id").in("id", [a, b, keep])).data).toEqual([{ id: keep }]);
+  expect((await admin.from("customers").select("id").eq("id", customerId)).data).toHaveLength(1);
+  // Cancel leaves select mode without deleting anything
+  await page.getByRole("button", { name: "Select" }).click();
+  await page.getByRole("checkbox", { name: `Select ${keep}` }).check();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("checkbox")).toHaveCount(0);
+  expect((await admin.from("loans").select("id").eq("id", keep)).data).toHaveLength(1);
+  await expectClean(page, "loans after bulk delete");
+});
+
 test("an admin adds a login, changes it, resets its password, and switches it off and on", async ({ page }) => {
   const p = `97${String(Date.now()).slice(-8)}`;
   const shown = `${p.slice(0, 5)} ${p.slice(5)}`;
@@ -1049,6 +1141,12 @@ test("the business owner (not an admin) sees the logins but cannot add or change
   await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
   await expect(page.locator("main")).toContainText("Logins are added and changed by your administrator");
   await expectClean(page, "users page, owner");
+  // nor delete a loan
+  await openLoan(page, "LP-1024");
+  await expect(page.getByRole("button", { name: "Delete Loan" })).toHaveCount(0);
+  await page.goto("/loans/");
+  await expect(page.getByRole("link", { name: "New" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select" })).toHaveCount(0);
   // the business itself is all theirs: reports open
   await page.goto("/reports/");
   await expect(page.locator("main")).not.toContainText("Owner only");
@@ -1064,6 +1162,11 @@ test("staff cannot manage logins or delete a customer", async ({ page }) => {
   await expect(page.getByRole("dialog").getByRole("button", { name: /Delete Customer/ })).toHaveCount(0);
   await page.goto("/users/");
   await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
+  await openLoan(page, "LP-1024");
+  await expect(page.getByRole("button", { name: "Delete Loan" })).toHaveCount(0);
+  await page.goto("/loans/");
+  await expect(page.getByRole("heading", { name: "Loans" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select" })).toHaveCount(0);
 });
 
 test("a collector cannot edit a customer or change the photo", async ({ page }) => {
