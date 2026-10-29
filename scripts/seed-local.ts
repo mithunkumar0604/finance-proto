@@ -40,7 +40,8 @@ async function main() {
     if (error || !data.user) throw new Error(`user ${u.name}: ${error?.message}`);
     userId.set(u.id, data.user.id);
   }
-  await insert("profiles", DEMO_USERS.map((u) => ({ id: userId.get(u.id), name: u.name, phone: u.phone, role: u.role, area: u.area ?? null, active: u.active })));
+  // the local owner is also an admin (manages logins), like the real admins
+  await insert("profiles", DEMO_USERS.map((u) => ({ id: userId.get(u.id), name: u.name, phone: u.phone, role: u.role, area: u.area ?? null, active: u.active, is_admin: u.role === "owner" })));
 
   await insert("customers", demo.customers.map((c) => ({
     id: c.id, name: c.name, phone: c.phone, alt_phone: c.altPhone ?? null, area: c.area, address: c.address ?? null, id_ref: c.idRef ?? null,

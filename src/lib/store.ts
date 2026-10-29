@@ -551,11 +551,29 @@ export const actions = {
     return remote.changePassword(current, next);
   },
 
-  /** LIVE, owner: change a team member's role, or switch a login on or off. */
-  async updateUser(id: string, patch: Partial<Pick<AppUser, "name" | "phone" | "role" | "area" | "active">>): Promise<void> {
+  /** LIVE, admin: change a login's name, role or area, or switch it off / on. */
+  async updateUser(id: string, patch: Partial<Pick<AppUser, "name" | "role" | "area" | "active">>): Promise<void> {
     if (!LIVE) return;
     const user = await remote.updateUser(id, patch);
     set((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? user : u)) }));
+    refreshActivity();
+  },
+
+  /** LIVE, admin: add a login. It can sign in at once with the password given. */
+  async addUser(u: { name: string; phone: string; role: AppUser["role"]; area?: string; password: string }): Promise<AppUser> {
+    if (!LIVE) throw new AppError("NOT_ALLOWED", "Logins can be added only in the live app.");
+    const { id } = await remote.addUser(u);
+    const user = await remote.readUser(id);
+    set((s) => ({ ...s, users: [...s.users, user] }));
+    refreshActivity();
+    return user;
+  },
+
+  /** LIVE, admin: give a login a new password (when it is forgotten). */
+  async resetUserPassword(userId: string, password: string): Promise<void> {
+    if (!LIVE) throw new AppError("NOT_ALLOWED", "Passwords can be reset only in the live app.");
+    await remote.resetUserPassword(userId, password);
+    refreshActivity();
   },
 };
 

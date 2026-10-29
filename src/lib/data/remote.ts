@@ -331,8 +331,34 @@ export const updateLoan = (loanId: string, version: number, patch: Partial<Pick<
 
 export const releaseCollateral = (loanId: string) => rpc<null>("release_collateral", { p_loan_id: loanId });
 
-export async function updateUser(id: string, patch: Partial<Pick<AppUser, "name" | "phone" | "role" | "area" | "active">>): Promise<AppUser> {
-  const { data: row, error } = await supabase().from("profiles").update(patch).eq("id", id).select("*").single();
+/** Admin: change a login's name, role, area, or switch it off / on. The database checks the caller is an admin. */
+export async function updateUser(id: string, patch: Partial<Pick<AppUser, "name" | "role" | "area" | "active">>): Promise<AppUser> {
+  await rpc<null>("admin_set_login", { p_user: id, p_patch: patch });
+  const { data: row, error } = await supabase().from("profiles").select("*").eq("id", id).single();
+  if (error) throw toAppError(error);
+  return userFromRow(row);
+}
+
+/**
+ * Admin: the login jobs that need the server's key (add a login, reset a password), done
+ * by the manage-users server function. It checks the caller is an admin.
+ */
+async function manageUsers<T>(body: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase().functions.invoke("manage-users", { body });
+  if (error) {
+    // the function answers with { error: "CODE: words" }, like the database functions
+    const sent = await (error as { context?: Response }).context?.json?.().catch(() => null);
+    throw toAppError(sent?.error ? new Error(sent.error) : error);
+  }
+  return data as T;
+}
+
+export const addUser = (u: { name: string; phone: string; role: AppUser["role"]; area?: string; password: string }) => manageUsers<{ id: string }>({ action: "create", ...u });
+
+export const resetUserPassword = (userId: string, password: string) => manageUsers<{ ok: true }>({ action: "reset_password", userId, password });
+
+export async function readUser(id: string): Promise<AppUser> {
+  const { data: row, error } = await supabase().from("profiles").select("*").eq("id", id).single();
   if (error) throw toAppError(error);
   return userFromRow(row);
 }

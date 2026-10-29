@@ -183,4 +183,6 @@ export interface AppUser {
   role: Role["id"];
   area?: string;
   active: boolean;
+  /** An owner who also manages logins (adds users, changes roles, resets passwords). */
+  isAdmin?: boolean;
 }

@@ -488,11 +488,12 @@ describe("who can do what", () => {
     expect((await collector.db.from("customers").update({ collector_id: collector.id }).eq("id", theirs.customerId).select()).data ?? []).toHaveLength(0);
   });
 
-  it("only the owner can change roles or switch a login off", async () => {
-    expect((await staff.db.from("profiles").update({ role: "owner" }).eq("id", staff.id).select()).data ?? []).toHaveLength(0);
-    expect((await collector.db.from("profiles").update({ active: false }).eq("id", owner.id).select()).data ?? []).toHaveLength(0);
+  it("nobody changes a login by writing to the table, not even an owner (only an admin, see logins.itest.ts)", async () => {
     const temp = await makeUser("staff", "Temp");
-    expect((await owner.db.from("profiles").update({ active: false }).eq("id", temp.id).select()).data).toHaveLength(1);
+    for (const who of [owner, staff, collector]) await who.db.from("profiles").update({ active: false, role: "owner" }).eq("id", temp.id);
+    expect((await admin.from("profiles").select("active,role").eq("id", temp.id).single()).data).toEqual({ active: true, role: "staff" });
+    // a login that is switched off sees nothing
+    await admin.from("profiles").update({ active: false }).eq("id", temp.id);
     expect((await temp.db.from("customers").select("id").limit(1)).data).toHaveLength(0);
   });
 });

@@ -1,16 +1,17 @@
 "use client";
 
 import { clsx } from "clsx";
-import { Check, Eye, Minus, PencilLine, UserPlus } from "lucide-react";
+import { Check, Eye, Minus, PencilLine, ShieldCheck, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Avatar, Card, Chip, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { phoneFmt } from "@/lib/format";
+import { currentUser } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
 import type { AppUser, Role } from "@/lib/types";
@@ -29,15 +30,18 @@ const MATRIX: { label: string; owner: boolean; collector: boolean; staff: boolea
   { label: "Give new loans", owner: true, collector: false, staff: false },
   { label: "Add customers", owner: true, collector: false, staff: true },
   { label: "See Money Outside & reports", owner: true, collector: false, staff: false },
-  { label: "Manage users", owner: true, collector: false, staff: false },
+  { label: "Add or change logins", owner: false, collector: false, staff: false },
 ];
 
 export default function UsersPage() {
   const s = useAppState();
   const router = useRouter();
-  const [renaming, setRenaming] = useState<AppUser | null>(null);
-  // LIVE: the owner sets the name shown for each login (the database allows only the owner)
-  const canRename = LIVE && s.session.viewAs === "owner";
+  const [editing, setEditing] = useState<AppUser | null>(null);
+  const [adding, setAdding] = useState(false);
+  // LIVE: only an admin manages logins (the database and the server function check it too).
+  // The business owner sees who has a login but cannot add or change anyone.
+  const me = currentUser(s);
+  const isAdmin = LIVE && !!me?.isAdmin;
 
   const viewAs = (role: Role["id"]) => {
     actions.setViewAs(role);
@@ -51,9 +55,15 @@ export default function UsersPage() {
         title="Users & Roles"
         subtitle="Who can see what"
         actions={
-          <Button size="sm" variant="soft" onClick={() => toast(LIVE ? "New logins are added by your administrator" : "Invite sent (demo)")}>
-            <UserPlus className="size-4" /> Add
-          </Button>
+          isAdmin ? (
+            <Button size="sm" variant="soft" onClick={() => setAdding(true)}>
+              <UserPlus className="size-4" /> Add User
+            </Button>
+          ) : !LIVE ? (
+            <Button size="sm" variant="soft" onClick={() => toast("Invite sent (demo)")}>
+              <UserPlus className="size-4" /> Add
+            </Button>
+          ) : undefined
         }
       />
 
@@ -62,15 +72,15 @@ export default function UsersPage() {
           <div key={u.id} className="flex items-center gap-3 px-4 py-3.5">
             <Avatar name={u.name} />
             <div className="min-w-0 flex-1">
-              <p className="font-bold">{u.name}</p>
+              <p className={clsx("font-bold", !u.active && "text-muted line-through")}>{u.name}</p>
               <p className="num truncate text-[13px] text-muted">
                 {phoneFmt(u.phone)}
                 {u.area ? ` · ${u.area}` : ""}
               </p>
             </div>
-            <Chip tone={ROLE_INFO[u.role].tone}>{ROLE_INFO[u.role].name}</Chip>
-            {canRename && (
-              <button type="button" onClick={() => setRenaming(u)} aria-label={`Edit name of ${u.name}`} className="grid size-9 shrink-0 place-items-center rounded-full text-muted hover:bg-line-2">
+            {!u.active ? <Chip tone="slate">Off</Chip> : u.isAdmin ? <Chip tone="brand">Admin</Chip> : <Chip tone={ROLE_INFO[u.role].tone}>{ROLE_INFO[u.role].name}</Chip>}
+            {isAdmin && (
+              <button type="button" onClick={() => setEditing(u)} aria-label={`Edit login of ${u.name}`} className="grid size-9 shrink-0 place-items-center rounded-full text-muted hover:bg-line-2">
                 <PencilLine className="size-4" />
               </button>
             )}
@@ -119,41 +129,160 @@ export default function UsersPage() {
         ))}
       </Card>
       {!LIVE && <p className="mt-3 px-1 text-xs text-muted">Concept only — detailed permissions will be finalised with you.</p>}
-      {renaming && <RenameSheet user={renaming} onClose={() => setRenaming(null)} />}
+      {LIVE && (
+        <p className="mt-3 flex items-start gap-1.5 px-1 text-xs text-muted">
+          <ShieldCheck className="mt-px size-3.5 shrink-0" /> Logins are added and changed by your administrator.
+        </p>
+      )}
+      {editing && <EditLoginSheet user={editing} self={editing.id === me?.id} onClose={() => setEditing(null)} />}
+      {adding && <AddLoginSheet onClose={() => setAdding(false)} />}
     </div>
   );
 }
 
-/** The name shown in the app for a login (on More, in the activity list, on this page). */
-function RenameSheet({ user, onClose }: { user: AppUser; onClose: () => void }) {
-  const [name, setName] = useState(user.name);
+const ROLE_OPTIONS = [
+  { value: "owner" as const, label: "Owner", sub: "Everything except logins" },
+  { value: "collector" as const, label: "Collector", sub: "Own customers, takes payments" },
+  { value: "staff" as const, label: "Staff", sub: "Adds customers, no money" },
+];
+
+const passwordWrong = (p: string) => (p.length < 8 ? "The password needs at least 8 characters." : null);
+
+/** Admin: add a login. The person signs in at once with the mobile number and this password. */
+function AddLoginSheet({ onClose }: { onClose: () => void }) {
+  const [f, setF] = useState({ name: "", phone: "", area: "", password: "" });
+  const [role, setRole] = useState<AppUser["role"]>("collector");
   const [problem, setProblem] = useState<string | null>(null);
   const { busy, run } = useSave();
+  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
-    const clean = name.trim();
-    if (!clean) return setProblem("Enter a name.");
-    if (clean.length > 60) return setProblem("Keep the name under 60 letters.");
-    setProblem(null);
-    if (!(await run(() => actions.updateUser(user.id, { name: clean }).then(() => true)))) return;
-    toast("Name changed");
+    const phone = f.phone.replace(/\D/g, "");
+    const p = !f.name.trim() ? "Enter the person's name." : phone.length !== 10 ? "Enter a 10-digit mobile number." : passwordWrong(f.password);
+    setProblem(p);
+    if (p) return;
+    const user = await run(() => actions.addUser({ name: f.name.trim(), phone, role, area: f.area.trim() || undefined, password: f.password }));
+    if (!user) return;
+    toast(`Login added for ${user.name}`);
     onClose();
   };
   return (
     <Sheet
       open
       onClose={onClose}
-      title="Name"
-      subtitle={`${ROLE_INFO[user.role].name} · ${phoneFmt(user.phone)}`}
+      title="Add User"
+      subtitle="They sign in with this mobile number and password"
       footer={
         <Button size="lg" className="w-full" disabled={busy} onClick={save}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Saving…" : "Add User"}
         </Button>
       }
     >
-      <div className="space-y-3 pb-2">
-        <Field label="Name" hint="Shown in the app and beside every entry this person makes.">
+      <div className="space-y-4 pb-2">
+        <Field label="Name" required>
+          <Input value={f.name} onChange={set("name")} autoComplete="off" maxLength={60} />
+        </Field>
+        <Field label="Mobile Number" required>
+          <Input value={f.phone} onChange={set("phone")} inputMode="tel" placeholder="98765 43210" autoComplete="off" />
+        </Field>
+        <Field label="Role" group>
+          <OptionGrid cols={3} value={role} onChange={setRole} options={ROLE_OPTIONS} />
+        </Field>
+        {role === "collector" && (
+          <Field label="Area (optional)">
+            <Input value={f.area} onChange={set("area")} placeholder="e.g. Perundurai" />
+          </Field>
+        )}
+        <Field label="Starting Password" required hint="Tell them this password. They can change it later in Settings.">
+          <Input value={f.password} onChange={set("password")} autoComplete="new-password" />
+        </Field>
+        {problem && (
+          <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
+            {problem}
+          </p>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
+/** Admin: change a login's name, role or area, switch it off or on, or give it a new password. */
+function EditLoginSheet({ user, self, onClose }: { user: AppUser; self: boolean; onClose: () => void }) {
+  const [name, setName] = useState(user.name);
+  const [area, setArea] = useState(user.area ?? "");
+  const [role, setRole] = useState<AppUser["role"]>(user.role);
+  const [password, setPassword] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const { busy, run } = useSave();
+  // an admin keeps the owner role, and nobody can lock themselves out
+  const fixedRole = self || !!user.isAdmin;
+
+  const save = async () => {
+    const p = !name.trim() ? "Enter a name." : null;
+    setProblem(p);
+    if (p) return;
+    const patch = { name: name.trim(), area: area.trim(), ...(fixedRole ? {} : { role }) };
+    if (!(await run(() => actions.updateUser(user.id, patch).then(() => true)))) return;
+    toast("Login updated");
+    onClose();
+  };
+  const switchActive = async () => {
+    if (!(await run(() => actions.updateUser(user.id, { active: !user.active }).then(() => true)))) return;
+    toast(user.active ? `${user.name} can no longer sign in` : `${user.name} can sign in again`);
+    onClose();
+  };
+  const reset = async () => {
+    const p = passwordWrong(password);
+    setProblem(p);
+    if (p) return;
+    if (!(await run(() => actions.resetUserPassword(user.id, password).then(() => true)))) return;
+    toast(`New password set for ${user.name}`);
+    onClose();
+  };
+
+  return (
+    <Sheet
+      open
+      onClose={onClose}
+      title="Edit Login"
+      subtitle={`${phoneFmt(user.phone)}${user.isAdmin ? " · Admin" : ""}`}
+      footer={
+        <Button size="lg" className="w-full" disabled={busy} onClick={save}>
+          {busy ? "Saving…" : "Save Changes"}
+        </Button>
+      }
+    >
+      <div className="space-y-4 pb-2">
+        <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" maxLength={60} />
         </Field>
+        {fixedRole ? (
+          <p className="rounded-xl bg-line-2/80 px-3 py-2.5 text-sm text-ink-2">{self ? "You cannot change your own role." : "An admin login is always an owner."}</p>
+        ) : (
+          <Field label="Role" group>
+            <OptionGrid cols={3} value={role} onChange={setRole} options={ROLE_OPTIONS} />
+          </Field>
+        )}
+        <Field label="Area (optional)">
+          <Input value={area} onChange={(e) => setArea(e.target.value)} />
+        </Field>
+
+        <div className="border-t border-line-2 pt-4">
+          <Field label="New Password" hint="For a forgotten password. Tell them the new one.">
+            <Input value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          </Field>
+          <Button variant="secondary" className="mt-2.5 w-full" disabled={busy || !password} onClick={reset}>
+            Set New Password
+          </Button>
+        </div>
+
+        {!self && (
+          <div className="border-t border-line-2 pt-4">
+            <Button variant={user.active ? "danger" : "secondary"} className="w-full" disabled={busy} onClick={switchActive}>
+              {user.active ? "Switch Off This Login" : "Switch This Login On"}
+            </Button>
+            <p className="mt-1.5 text-[13px] text-muted">{user.active ? "They will not be able to sign in or see anything. Their past entries stay." : "They can sign in again with their password."}</p>
+          </div>
+        )}
         {problem && (
           <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2.5 text-sm font-medium text-rose-800">
             {problem}

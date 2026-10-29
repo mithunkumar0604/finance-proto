@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // server functions run on Deno at Supabase, not in the app
+    "supabase/functions/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

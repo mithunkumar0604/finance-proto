@@ -35,5 +35,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx supabase start -x studio,imgproxy,logflare,vector,realtime,edge-runtime,supavisor,mailpit,postgres-meta
+      - run: npx supabase start -x studio,imgproxy,logflare,vector,realtime,supavisor,mailpit,postgres-meta
       - run: npm run test:db

@@ -959,31 +959,102 @@ test("the owner can delete a customer who has no loans, but not one who has", as
   await expect(page.locator("main")).toContainText(`Deleted customer ${name} (${made!.id})`);
 });
 
-test("the owner can change the name shown for a login", async ({ page }) => {
+test("an admin adds a login, changes it, resets its password, and switches it off and on", async ({ page }) => {
+  const p = `97${String(Date.now()).slice(-8)}`;
+  const shown = `${p.slice(0, 5)} ${p.slice(5)}`;
+  const NEW = `New Collector ${p.slice(-4)}`;
+  const RENAMED = `Renamed Person ${p.slice(-4)}`;
+  await signInOwner(page); // the local owner is an admin
+  await page.goto("/users/");
+  await page.getByRole("button", { name: "Add User" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByLabel("Name").fill(NEW);
+  await sheet.getByLabel("Mobile Number").fill(shown);
+  await sheet.getByRole("button", { name: /^Collector/ }).click();
+  await sheet.getByLabel("Starting Password").fill("short");
+  await sheet.getByRole("button", { name: "Add User" }).click();
+  await expect(sheet.getByRole("alert")).toContainText("at least 8 characters");
+  await sheet.getByLabel("Starting Password").fill("start-pass-1");
+  await page.screenshot({ path: "test-results/add-user.png" });
+  await sheet.getByRole("button", { name: "Add User" }).click();
+  await expect(page.getByText(`Login added for ${NEW}`)).toBeVisible();
+  await expect(page.locator("main")).toContainText(NEW);
+  const { data: prof } = await admin.from("profiles").select("id,role,active,is_admin").eq("phone", p).single();
+  expect(prof).toMatchObject({ role: "collector", active: true, is_admin: false });
+  // the same number twice is refused
+  await page.getByRole("button", { name: "Add User" }).click();
+  await sheet.getByLabel("Name").fill("Again");
+  await sheet.getByLabel("Mobile Number").fill(p);
+  await sheet.getByLabel("Starting Password").fill("start-pass-1");
+  await sheet.getByRole("button", { name: "Add User" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "already has a login" })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // rename, make staff, new password
+  await page.getByRole("button", { name: `Edit login of ${NEW}` }).click();
+  await sheet.getByLabel("Name").fill(RENAMED);
+  await sheet.getByRole("button", { name: /^Staff/ }).click();
+  await page.screenshot({ path: "test-results/edit-login.png", fullPage: true });
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(page.getByText("Login updated")).toBeVisible();
+  expect((await admin.from("profiles").select("name,role").eq("id", prof!.id).single()).data).toEqual({ name: RENAMED, role: "staff" });
+  await page.getByRole("button", { name: `Edit login of ${RENAMED}` }).click();
+  await sheet.getByLabel("New Password").fill("new-pass-2026");
+  await sheet.getByRole("button", { name: "Set New Password" }).click();
+  await expect(page.getByText(`New password set for ${RENAMED}`)).toBeVisible();
+
+  // switch off: shown as Off, and that login can no longer get in
+  await page.getByRole("button", { name: `Edit login of ${RENAMED}` }).click();
+  await sheet.getByRole("button", { name: "Switch Off This Login" }).click();
+  await expect(page.getByText(`${RENAMED} can no longer sign in`)).toBeVisible();
+  await expect(page.locator("main")).toContainText("Off");
+  await page.goto("/activity/");
+  await expect(page.locator("main")).toContainText(`Switched off login ${RENAMED}`);
+  await page.goto("/more/");
+  await page.getByText("Logout", { exact: true }).click();
+  await signIn(page, shown, "new-pass-2026");
+  await expect(page.getByRole("alert").filter({ hasText: "not active" })).toBeVisible();
+
+  // switch on again: the new password works
   await signInOwner(page);
   await page.goto("/users/");
-  await page.getByRole("button", { name: "Edit name of Deepa" }).click();
-  const sheet = page.getByRole("dialog");
-  await sheet.getByLabel("Name").fill("  ");
-  await sheet.getByRole("button", { name: "Save" }).click();
-  await expect(sheet.getByRole("alert")).toContainText("Enter a name");
-  await sheet.getByLabel("Name").fill("Deepa Lakshmi");
-  await sheet.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Name changed")).toBeVisible();
-  await expect(page.locator("main")).toContainText("Deepa Lakshmi");
-  expect((await admin.from("profiles").select("name").eq("phone", "9800045678").single()).data!.name).toBe("Deepa Lakshmi");
-  // the owner's own name shows on More
-  await page.getByRole("button", { name: "Edit name of Rajendran" }).click();
-  await page.getByRole("dialog").getByLabel("Name").fill("Rajendran K");
-  await page.getByRole("dialog").getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText("Name changed")).toBeVisible();
+  await page.getByRole("button", { name: `Edit login of ${RENAMED}` }).click();
+  await sheet.getByRole("button", { name: "Switch This Login On" }).click();
+  await expect(page.getByText(`${RENAMED} can sign in again`)).toBeVisible();
   await page.goto("/more/");
-  await expect(page.locator("main")).toContainText("Rajendran K");
-  await admin.from("profiles").update({ name: "Rajendran" }).eq("phone", "9800012345");
-  await admin.from("profiles").update({ name: "Deepa" }).eq("phone", "9800045678");
+  await page.getByText("Logout", { exact: true }).click();
+  await signIn(page, shown, "new-pass-2026");
+  await page.waitForURL(/home/);
+  await page.goto("/more/");
+  await page.getByText("Logout", { exact: true }).click();
+
+  // an admin cannot switch themselves off or change their own role
+  await signInOwner(page);
+  await page.goto("/users/");
+  await page.getByRole("button", { name: "Edit login of Rajendran" }).click();
+  await expect(sheet).toContainText("You cannot change your own role");
+  await expect(sheet.getByRole("button", { name: /Switch Off/ })).toHaveCount(0);
 });
 
-test("staff cannot rename logins or delete a customer", async ({ page }) => {
+test("the business owner (not an admin) sees the logins but cannot add or change any", async ({ page }) => {
+  const p = `96${String(Date.now()).slice(-8)}`;
+  const { data: made } = await admin.auth.admin.createUser({ email: `${p}@ledgerpro.invalid`, password: PASSWORD, email_confirm: true });
+  await admin.from("profiles").insert({ id: made.user!.id, name: "Client Owner", phone: p, role: "owner", active: true });
+  await signIn(page, p);
+  await page.waitForURL(/home/);
+  await page.goto("/users/");
+  await expect(page.locator("main")).toContainText("Rajendran");
+  await expect(page.locator("main")).toContainText("Admin");
+  await expect(page.getByRole("button", { name: /Add User|^Add$/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
+  await expect(page.locator("main")).toContainText("Logins are added and changed by your administrator");
+  await expectClean(page, "users page, owner");
+  // the business itself is all theirs: reports open
+  await page.goto("/reports/");
+  await expect(page.locator("main")).not.toContainText("Owner only");
+});
+
+test("staff cannot manage logins or delete a customer", async ({ page }) => {
   const { data: made } = await admin.from("customers").insert({ name: `Staff View ${Date.now() % 100000}`, phone: "9000055555", area: "Nowhere" }).select("id").single();
   await signIn(page, "98000 45678");
   await page.waitForURL(/home/);
@@ -991,6 +1062,8 @@ test("staff cannot rename logins or delete a customer", async ({ page }) => {
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "Edit Customer" })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("button", { name: /Delete Customer/ })).toHaveCount(0);
+  await page.goto("/users/");
+  await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
 });
 
 test("a collector cannot edit a customer or change the photo", async ({ page }) => {

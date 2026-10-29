@@ -164,7 +164,7 @@ export function activityFromRow(r: Row): Activity {
 }
 
 export function userFromRow(r: Row): AppUser {
-  return { id: r.id, name: r.name, phone: r.phone ?? "", role: r.role, area: opt(r.area), active: !!r.active };
+  return { id: r.id, name: r.name, phone: r.phone ?? "", role: r.role, area: opt(r.area), active: !!r.active, ...(r.is_admin ? { isAdmin: true } : {}) };
 }
 
 // ---------------------------------------------------------------------------
