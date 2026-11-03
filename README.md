@@ -97,14 +97,20 @@ runtime, with the production security headers.
 | | Owner | Collector | Staff |
 |---|---|---|---|
 | See customers and loans | all | their own customers | all |
-| Take payments, move a date | yes | their own customers | no |
-| Give a loan, edit a loan, release security | yes | no | no |
-| Add / edit customers | yes | no | yes |
-| Choose which pending months a payment covers | yes | their own customers | no |
-| Waive interest (reason required) | yes | no | no |
-| Reports, activity log, delete a payment, manage users | yes | no | no |
-| Security photos and documents | add, view, replace, remove | view | add, view |
-| Change own password (Settings → Security) | yes | yes | yes |
+| Take payments, move a date | yes | their own customers | yes |
+| Give a loan, edit a loan, release security | yes | no | yes |
+| Add / edit customers, move a customer to another collector | yes | no | yes |
+| Choose which pending months a payment covers | yes | their own customers | yes |
+| Waive interest (reason required) | yes | no | yes |
+| Money Outside, reports, activity log | yes | no | yes |
+| Delete a customer or a payment | yes | no | no |
+| Users & Roles page | yes (view) | no | no |
+| Security photos and documents | add, view, replace, remove | view | add, view, replace |
+| Change own password (Settings → Security) | yes | yes | no (hidden; an admin resets it) |
+
+Staff work like the owner but delete nothing. Deleting a loan and adding or changing
+logins are for an admin only. Hiding Change Password from staff is done in the app
+only: Supabase Auth lets any signed-in user change their own password.
 
 ## Demo data notes
 

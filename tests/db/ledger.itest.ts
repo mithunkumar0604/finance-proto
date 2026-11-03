@@ -455,14 +455,52 @@ describe("who can do what", () => {
     expect((await owner.db.from("payments").select("id,interest").eq("loan_id", loanId)).data).toHaveLength(1);
   });
 
-  it("staff can add and edit customers but cannot give loans, take payments or see the activity log", async () => {
+  it("staff work like the owner: add and edit customers, give loans, take payments, release security, see the activity log", async () => {
     const customerId = await addCustomer(staff.db, "Added By Staff");
     expect((await staff.db.from("customers").update({ area: "Erode" }).eq("id", customerId).select()).data).toHaveLength(1);
-    expect(codeOf(await giveLoan(staff.db, monthly(customerId)))).toBe("NOT_ALLOWED");
+    const given = await giveLoan(staff.db, {
+      ...monthly(customerId),
+      type: "vehicle",
+      security: { kind: "vehicle", registration: "TN 33 ST 1234", vehicleType: "car", make: "Tata", model: "Nexon", ownerName: "X", rcRef: "RC-1", documentHeld: "RC", storage: "Locker", status: "held" },
+    });
+    expect(given.error).toBeNull();
+    const loanId = given.data.loan_id as string;
+    expect((await pay(staff.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 })).error).toBeNull();
+    expect((await staff.db.from("activity").select("id").eq("loan_id", loanId)).data!.length).toBeGreaterThan(0);
+    expect((await staff.db.rpc("release_collateral", { p_loan_id: loanId })).error).toBeNull();
+    expect((await admin.from("collateral").select("status").eq("loan_id", loanId).single()).data!.status).toBe("released");
+  });
+
+  it("staff can waive interest with a reason, and move a payment date", async () => {
     const { loanId } = await newLoan();
-    expect(codeOf(await pay(staff.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 }))).toBe("NOT_ALLOWED");
-    expect((await staff.db.from("activity").select("id").limit(5)).data).toHaveLength(0);
-    expect(codeOf(await staff.db.rpc("release_collateral", { p_loan_id: loanId }))).toBe("NOT_ALLOWED");
+    const sneak = (a: Record<string, any>) => (a.p_dues[0].waived = rupees(2000)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(codeOf(await pay(staff.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0 }, { tamper: sneak }))).toBe("REASON_NEEDED");
+    const first = (await readLoan(owner.db, loanId)).dues[0];
+    expect((await pay(staff.db, loanId, { date: TODAY, interest: rupees(1000), principal: 0, other: 0, waive: [{ dueId: first.id, amount: rupees(2000) }], waiveReason: "Hardship" })).error).toBeNull();
+    expect((await readLoan(owner.db, loanId)).dues[0].waived).toBe(rupees(2000));
+
+    const other = await newLoan();
+    const { loan, dues } = await readLoan(owner.db, other.loanId);
+    const waive = (reason: string) => staff.db.rpc("waive_interest", { p_loan_id: other.loanId, p_version: loan.version, p_waive: [{ due_id: dues[0].id, amount: rupees(500) }], p_reason: reason });
+    expect(codeOf(await waive(" "))).toBe("REASON_NEEDED");
+    expect((await waive("Goodwill")).error).toBeNull();
+
+    const third = await newLoan();
+    const due = (await readLoan(owner.db, third.loanId)).dues[0];
+    expect((await staff.db.rpc("reschedule_due", { p_due_id: due.id, p_new_date: shift(TODAY, 5), p_reason: "Travelling" })).error).toBeNull();
+    expect((await readLoan(owner.db, third.loanId)).dues[0].dueDate).toBe(shift(TODAY, 5));
+  });
+
+  it("staff cannot delete: no payment, customer or loan", async () => {
+    const { loanId, customerId } = await newLoan();
+    const paid = await pay(owner.db, loanId, { date: TODAY, interest: rupees(3000), principal: 0, other: 0 });
+    expect(paid.error).toBeNull();
+    expect(codeOf(await staff.db.rpc("reverse_payment", { p_payment_id: paid.paymentId, p_reason: "x" }))).toBe("NOT_ALLOWED");
+    expect(codeOf(await staff.db.rpc("delete_customer", { p_customer_id: customerId }))).toBe("NOT_ALLOWED");
+    expect(codeOf(await staff.db.rpc("delete_loan", { p_loan_id: loanId }))).toBe("NOT_ALLOWED");
+    expect(codeOf(await staff.db.rpc("delete_loans", { p_ids: [loanId] }))).toBe("NOT_ALLOWED");
+    expect(await paymentsOf(loanId)).toHaveLength(1);
+    expect((await admin.from("customers").select("id").eq("id", customerId)).data).toHaveLength(1);
   });
 
   it("a collector sees and collects only for their own customers", async () => {
@@ -649,7 +687,7 @@ describe("the business's own loan number, and who referred the customer", () => 
     expect((await admin.from("loans").select("id").eq("customer_id", customerId)).data).toHaveLength(1);
   });
 
-  it("can be changed later by the owner; a number another loan has is refused", async () => {
+  it("can be changed later by the owner or staff; a number another loan has is refused", async () => {
     const a = await newLoan();
     const b = await newLoan();
     const n = no();
@@ -666,7 +704,11 @@ describe("the business's own loan number, and who referred the customer", () => 
     const cleared = (await readLoan(owner.db, a.loanId)).loan;
     expect(cleared.loanNo).toBeUndefined();
     expect(cleared.referredBy).toBeUndefined();
-    expect(codeOf(await edit(a.loanId, 5, { loan_no: "X" }, staff))).toBe("NOT_ALLOWED");
+    // staff edit a loan like the owner; a collector cannot
+    const m = no();
+    expect((await edit(b.loanId, 1, { loan_no: m }, staff)).error).toBeNull();
+    expect((await readLoan(owner.db, b.loanId)).loan.loanNo).toBe(m);
+    expect(codeOf(await edit(b.loanId, 2, { loan_no: no() }, collector))).toBe("NOT_ALLOWED");
     const log = (await owner.db.from("activity").select("data").eq("loan_id", a.loanId).eq("kind", "loan").order("id", { ascending: false }).limit(1).single()).data!;
     expect(log.data.before).toMatchObject({ loan_no: n, referred_by: "Kumar" });
   });
@@ -815,9 +857,10 @@ describe("private documents", () => {
     expect((await fetch(signed.data!.signedUrl)).ok).toBe(true);
     expect((await otherCollector.db.storage.from("documents").createSignedUrl(path, 60)).error).not.toBeNull();
 
-    // collectors cannot add files; only the owner can remove them
+    // collectors cannot add files; only the owner can remove them (not staff, not a collector)
     expect((await collector.db.storage.from("documents").upload(`${mine.loanId}/c-1.png`, png)).error).not.toBeNull();
-    await staff.db.storage.from("documents").remove([path]);
+    expect((await staff.db.storage.from("documents").remove([path])).data ?? []).toHaveLength(0);
+    expect((await collector.db.storage.from("documents").remove([path])).data ?? []).toHaveLength(0);
     expect((await owner.db.storage.from("documents").download(path)).error).toBeNull();
 
     // staff can add; the loan's people can list its files, another collector sees none
@@ -864,8 +907,8 @@ describe("private documents", () => {
     expect((await up(collector, `${mine}/idback-100.png`)).error).not.toBeNull();
     // not under a customer that does not exist
     expect((await up(owner, `C99999999/photo-1.png`)).error).not.toBeNull();
-    // staff cannot put a newer photo over the first; the owner can
-    expect((await up(staff, `${mine}/photo-999.png`)).error).not.toBeNull();
+    // staff and the owner can both put a newer photo over the first (the old one is kept)
+    expect((await up(staff, `${mine}/photo-999.png`)).error).toBeNull();
     expect((await up(owner, `${mine}/photo-200.png`)).error).toBeNull();
 
     // the customer's own collector sees them through a signed link; another collector sees nothing
@@ -878,23 +921,24 @@ describe("private documents", () => {
     expect((await fetch(admin.storage.from("documents").getPublicUrl(`${mine}/photo-100.png`).data.publicUrl)).ok).toBe(false);
     expect((await anon.storage.from("documents").download(`${mine}/photo-100.png`)).error).not.toBeNull();
     // only the owner removes
-    await staff.db.storage.from("documents").remove([`${mine}/photo-100.png`]);
+    expect((await staff.db.storage.from("documents").remove([`${mine}/photo-100.png`])).data ?? []).toHaveLength(0);
     expect((await owner.db.storage.from("documents").download(`${mine}/photo-100.png`)).error).toBeNull();
     expect((await owner.db.storage.from("documents").remove([`${mine}/photo-100.png`])).data).toHaveLength(1);
   });
 
-  it("staff can fill an empty tile but cannot put a newer photo over an existing one; the owner can", async () => {
+  it("staff, like the owner, can put a newer photo over an existing one; the old file stays", async () => {
     const { loanId } = await newLoan();
     const up = (who: TestUser, name: string) => who.db.storage.from("documents").upload(`${loanId}/${name}`, png);
     expect((await up(staff, "front-100.png")).error).toBeNull();
-    // same tile, later time: this would become the photo everyone sees
-    expect((await up(staff, "front-999.png")).error).not.toBeNull();
+    // same tile, later time: this becomes the photo everyone sees
+    expect((await up(staff, "front-999.png")).error).toBeNull();
     // another tile is fine, also one whose name merely starts the same way
     expect((await up(staff, "side-100.png")).error).toBeNull();
     expect((await up(staff, "front2-100.png")).error).toBeNull();
-    // the owner replaces: the new one is added (the app then removes the old one)
     expect((await up(owner, "front-200.png")).error).toBeNull();
-    expect((await admin.storage.from("documents").list(loanId)).data!.map((f) => f.name).sort()).toEqual(["front-100.png", "front-200.png", "front2-100.png", "side-100.png"]);
+    // staff cannot remove the older photo; nothing is lost
+    expect((await staff.db.storage.from("documents").remove([`${loanId}/front-100.png`])).data ?? []).toHaveLength(0);
+    expect((await admin.storage.from("documents").list(loanId)).data!.map((f) => f.name).sort()).toEqual(["front-100.png", "front-200.png", "front-999.png", "front2-100.png", "side-100.png"]);
   });
 });
 
@@ -1006,15 +1050,18 @@ describe("more points from the security review", () => {
     expect(codeOf(res)).toBe("BEFORE_LAST_PAYMENT");
   });
 
-  it("customer edits are logged, and only the owner can move a customer to another collector", async () => {
+  it("customer edits are logged, and the owner or staff (not a collector) can move a customer to another collector", async () => {
     const customerId = await addCustomer(owner.db, "Audit Me", collector.id);
     expect((await staff.db.from("customers").update({ phone: "9111111111" }).eq("id", customerId).select()).data).toHaveLength(1);
     const log = await owner.db.from("activity").select("text,data").eq("customer_id", customerId).order("id", { ascending: false }).limit(1).single();
     expect(log.data!.text).toBe("Edited customer Audit Me");
     expect(log.data!.data).toMatchObject({ before: { phone: "9000000000" }, after: { phone: "9111111111" } });
 
-    expect((await staff.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).error?.message).toMatch(/NOT_ALLOWED/);
-    expect((await owner.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).data).toHaveLength(1);
+    expect((await staff.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).data).toHaveLength(1);
+    expect((await owner.db.from("customers").update({ collector_id: collector.id }).eq("id", customerId).select()).data).toHaveLength(1);
+    // a collector cannot hand their customer to someone else
+    expect((await collector.db.from("customers").update({ collector_id: otherCollector.id }).eq("id", customerId).select()).data ?? []).toHaveLength(0);
+    expect((await admin.from("customers").select("collector_id").eq("id", customerId).single()).data!.collector_id).toBe(collector.id);
   });
 
   it("a collection date cannot be moved into the past or years ahead", async () => {

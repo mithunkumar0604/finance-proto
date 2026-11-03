@@ -37,9 +37,9 @@ export default function MorePage() {
       </Group>
 
       <Group>
-        {perm.role === "owner" && <Item href="/users/" icon={<UserCog />} label="Users" sub="Owner, collectors & staff" tone="bg-indigo-50 text-indigo-700" />}
+        {perm.seeUsers && <Item href="/users/" icon={<UserCog />} label="Users" sub="Owner, collectors & staff" tone="bg-indigo-50 text-indigo-700" />}
         <Item href="/activity/" icon={<Activity />} label="Activity" sub="Who did what, and when" tone="bg-slate-100 text-slate-700" />
-        <Item href="/settings/" icon={<Settings />} label="Settings" sub={LIVE ? "Password, PIN, auto-lock, devices" : "PIN, auto-lock, devices"} tone="bg-slate-100 text-slate-700" />
+        <Item href="/settings/" icon={<Settings />} label="Settings" sub={LIVE && perm.changePassword ? "Password, PIN, auto-lock, devices" : "PIN, auto-lock, devices"} tone="bg-slate-100 text-slate-700" />
       </Group>
 
       <Group>

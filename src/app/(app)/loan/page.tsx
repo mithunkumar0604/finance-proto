@@ -180,7 +180,7 @@ function LoanDetails() {
 
           {loan.security && (
             <Card className="p-4 md:p-5">
-              {/* LIVE: owner and staff add photos, only the owner removes them (the storage policies enforce both) */}
+              {/* LIVE: owner and staff add and replace photos, only the owner removes them (the storage policies enforce both) */}
               <SecurityDetails sec={loan.security} files={LIVE ? { loanId: loan.id, canAdd: perm.role !== "collector", canRemove: perm.role === "owner" } : undefined} />
               {loan.security.status === "held" && !active && (
                 <Button

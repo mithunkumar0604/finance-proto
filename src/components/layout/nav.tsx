@@ -108,7 +108,7 @@ export function Sidebar() {
       </nav>
       <p className="mt-6 mb-2 px-3 text-xs font-bold tracking-[0.08em] text-faint uppercase">Manage</p>
       <nav className="flex flex-col gap-1">
-        {link("/users/", "Users & Roles", UserCog, perm.role === "owner")}
+        {link("/users/", "Users & Roles", UserCog, perm.seeUsers)}
         {link("/activity/", "Activity", Activity)}
         {link("/settings/", "Settings", Settings)}
       </nav>

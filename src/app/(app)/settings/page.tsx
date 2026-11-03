@@ -12,6 +12,7 @@ import { Field, Input } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { MIN_PASSWORD, passwordProblem } from "@/lib/password";
+import { permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
 
@@ -69,7 +70,7 @@ export default function SettingsPage() {
         <Action icon={Lock} label="Lock Application now" onClick={actions.lock} />
       </Card>
 
-      {LIVE && (
+      {LIVE && permissions(s).changePassword && (
         <>
           <SectionHeader title="Security" />
           <Card className="mb-6 overflow-hidden">

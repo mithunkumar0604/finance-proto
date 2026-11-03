@@ -252,7 +252,7 @@ function PaymentForm({
         : waiving && (adj || 0) > interestAll
           ? `You cannot take off more than the interest pending (${money(interestAll)}).`
           : waiving && (adj || 0) > 0 && !perm.waive
-            ? "Only the owner can waive interest."
+            ? "Only the owner or staff can waive interest."
             : waiving && (adj || 0) > 0 && !note.trim()
               ? "Write the reason for waiving in Notes."
               : "";

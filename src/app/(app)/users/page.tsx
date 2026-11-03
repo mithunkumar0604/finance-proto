@@ -1,17 +1,17 @@
 "use client";
 
 import { clsx } from "clsx";
-import { Check, Eye, Minus, PencilLine, ShieldCheck, UserPlus } from "lucide-react";
+import { Check, Eye, Lock, Minus, PencilLine, ShieldCheck, UserPlus } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
-import { Avatar, Card, Chip, SectionHeader } from "@/components/ui/bits";
+import { Avatar, Card, Chip, EmptyState, SectionHeader } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
 import { Field, Input, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { phoneFmt } from "@/lib/format";
-import { currentUser } from "@/lib/selectors";
+import { currentUser, permissions } from "@/lib/selectors";
 import { actions, LIVE, useAppState } from "@/lib/store";
 import { useSave } from "@/lib/use-save";
 import type { AppUser, Role } from "@/lib/types";
@@ -19,17 +19,20 @@ import type { AppUser, Role } from "@/lib/types";
 const ROLE_INFO: Record<Role["id"], { name: string; text: string; tone: "brand" | "indigo" | "slate" }> = {
   owner: { name: "Owner", text: "Sees everything — money, reports, all customers.", tone: "brand" },
   collector: { name: "Collector", text: "Sees assigned customers and receives payments.", tone: "indigo" },
-  staff: { name: "Staff", text: "Searches customers and views permitted records.", tone: "slate" },
+  staff: { name: "Staff", text: "Works like the owner, but cannot delete anything or see logins.", tone: "slate" },
 };
 
 const MATRIX: { label: string; owner: boolean; collector: boolean; staff: boolean }[] = [
   { label: "See today's collections", owner: true, collector: true, staff: true },
-  { label: "Receive payments", owner: true, collector: true, staff: false },
+  { label: "Receive payments", owner: true, collector: true, staff: true },
   { label: "Search customers", owner: true, collector: true, staff: true },
   { label: "See all customers", owner: true, collector: false, staff: true },
-  { label: "Give new loans", owner: true, collector: false, staff: false },
+  { label: "Give new loans", owner: true, collector: false, staff: true },
   { label: "Add customers", owner: true, collector: false, staff: true },
-  { label: "See Money Outside & reports", owner: true, collector: false, staff: false },
+  { label: "See Money Outside & reports", owner: true, collector: false, staff: true },
+  { label: "Delete customers, payments & photos", owner: true, collector: false, staff: false },
+  { label: "See users & roles", owner: true, collector: false, staff: false },
+  { label: "Change own password", owner: true, collector: true, staff: false },
   { label: "Add or change logins", owner: false, collector: false, staff: false },
 ];
 
@@ -48,6 +51,16 @@ export default function UsersPage() {
     toast(`Now viewing as ${ROLE_INFO[role].name}`);
     router.push("/home/");
   };
+
+  if (!permissions(s).seeUsers)
+    return (
+      <>
+        <PageHeader title="Users & Roles" />
+        <Card>
+          <EmptyState icon={Lock} title="Owner only" text={LIVE ? "Users and roles are visible to the owner." : "Users and roles are visible to the owner. Switch back to Owner to view them."} />
+        </Card>
+      </>
+    );
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -143,7 +156,7 @@ export default function UsersPage() {
 const ROLE_OPTIONS = [
   { value: "owner" as const, label: "Owner", sub: "Everything except logins" },
   { value: "collector" as const, label: "Collector", sub: "Own customers, takes payments" },
-  { value: "staff" as const, label: "Staff", sub: "Adds customers, no money" },
+  { value: "staff" as const, label: "Staff", sub: "Everything except deleting and logins" },
 ];
 
 const passwordWrong = (p: string) => (p.length < 8 ? "The password needs at least 8 characters." : null);

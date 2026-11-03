@@ -13,10 +13,10 @@ const PHOTO = CUSTOMER_SLOTS[0];
 /**
  * LIVE: the round picture beside a customer's name. Shows the customer's photo when there
  * is one (the same file as the "Customer photo" tile on the Docs tab), otherwise the
- * initials. The small camera button adds a photo, or changes it (owner only; staff can
- * add one where there is none).
+ * initials. The small camera button adds a photo, or changes it (owner and staff). The
+ * older photo is removed only when the user may remove files (the owner); otherwise it is kept.
  */
-export function CustomerPhoto({ customerId, name, canAdd, canReplace, onChanged }: { customerId: string; name: string; canAdd: boolean; canReplace: boolean; onChanged?: () => void }) {
+export function CustomerPhoto({ customerId, name, canAdd, canReplace, canRemove, onChanged }: { customerId: string; name: string; canAdd: boolean; canReplace: boolean; canRemove: boolean; onChanged?: () => void }) {
   // undefined = not read yet, null = no photo
   const [url, setUrl] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ export function CustomerPhoto({ customerId, name, canAdd, canReplace, onChanged 
     setBusy(true);
     try {
       // the older photo is removed once the new one is safely saved
-      const old = canReplace ? await loanFilePaths(customerId, PHOTO.id) : [];
+      const old = canRemove ? await loanFilePaths(customerId, PHOTO.id) : [];
       await uploadLoanFile(customerId, PHOTO.id, file);
       if (old.length) await removeLoanFiles(old).catch(() => {});
       setUrl(await read());

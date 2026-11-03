@@ -14,8 +14,8 @@ const TILE = "relative flex aspect-[4/3] w-full flex-col items-center justify-ce
 /**
  * LIVE: photo tiles backed by private storage: the three of a loan's security (folder =
  * the loan's id) or the three of a customer (folder = the customer's id). An empty tile
- * adds a file (owner and staff); a filled one opens it, where the owner can also replace
- * or remove it. Files are shown through signed links only.
+ * adds a file (owner and staff); a filled one opens it, where owner and staff can replace
+ * it and the owner can also remove it. Files are shown through signed links only.
  */
 export function FileTiles({ folder: loanId, slots, canAdd, canRemove, onChanged }: { folder: string; slots: FileSlot[]; canAdd: boolean; canRemove: boolean; onChanged?: () => void }) {
   // null until the first read: a tile is not offered as empty before it is known to be
@@ -163,19 +163,19 @@ export function FileTiles({ folder: loanId, slots, canAdd, canRemove, onChanged 
                 </Button>
               </div>
             ) : (
-              <div className={canRemove ? "grid grid-cols-3 gap-2.5" : "grid"}>
+              <div className={canRemove ? "grid grid-cols-3 gap-2.5" : canAdd ? "grid grid-cols-2 gap-2.5" : "grid"}>
                 <a href={shown.url} target="_blank" rel="noopener noreferrer" className={buttonClass("secondary", "lg")}>
                   <ExternalLink className="size-4" /> Open
                 </a>
+                {canAdd && (
+                  <Button size="lg" variant="secondary" onClick={() => pick(open)}>
+                    <RefreshCw className="size-4" /> Replace
+                  </Button>
+                )}
                 {canRemove && (
-                  <>
-                    <Button size="lg" variant="secondary" onClick={() => pick(open)}>
-                      <RefreshCw className="size-4" /> Replace
-                    </Button>
-                    <Button size="lg" variant="danger" onClick={() => setConfirmRemove(true)}>
-                      <Trash2 className="size-4" /> Remove
-                    </Button>
-                  </>
+                  <Button size="lg" variant="danger" onClick={() => setConfirmRemove(true)}>
+                    <Trash2 className="size-4" /> Remove
+                  </Button>
                 )}
               </div>
             )

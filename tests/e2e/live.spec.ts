@@ -8,6 +8,7 @@ import { admin, ANON, giveLoan, pay, URL as API } from "../db/helpers";
 const PASSWORD = "ledger-local-1";
 const OWNER = "98000 12345";
 const COLLECTOR = "98000 23456";
+const STAFF = "98000 45678";
 
 const istToday = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
 const shift = (iso: string, days: number) => {
@@ -1149,24 +1150,115 @@ test("the business owner (not an admin) sees the logins but cannot add or change
   await expect(page.getByRole("button", { name: "Select" })).toHaveCount(0);
   // the business itself is all theirs: reports open
   await page.goto("/reports/");
-  await expect(page.locator("main")).not.toContainText("Owner only");
+  await expect(page.locator("main")).not.toContainText("Owner and staff only");
 });
 
-test("staff cannot manage logins or delete a customer", async ({ page }) => {
-  const { data: made } = await admin.from("customers").insert({ name: `Staff View ${Date.now() % 100000}`, phone: "9000055555", area: "Nowhere" }).select("id").single();
-  await signIn(page, "98000 45678");
+test("staff work like the owner: take a payment, give a loan, see Money Outside, reports and activity, replace a photo", async ({ page }) => {
+  const name = `Staff Work ${Date.now() % 100000}`;
+  const { customerId, ids } = await customerWithLoans(name, 1);
+  const [id] = ids;
+  await signIn(page, STAFF);
   await page.waitForURL(/home/);
+  await expect(page.locator("main")).toContainText("Money Outside");
+
+  // a payment, with the Adjustment and waive choices the owner has
+  await openLoan(page, id);
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await page.getByRole("button", { name: /More options/ }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /^Adjustment/ }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "− Waive interest" })).toHaveCount(1);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Receive Payment" }).first().click();
+  await confirmAndFinish(page);
+  expect(await paymentsOf(id)).toHaveLength(1);
+
+  // a new loan for the same customer
+  await page.goto(`/loans/new/?customer=${customerId}`);
+  await page.locator("input[inputmode=numeric]").first().fill("15000");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("Collect every week").click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  const money = page.locator("input[inputmode=numeric]");
+  await money.nth(0).fill("300");
+  await money.nth(1).fill("3000");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Create Loan" }).click();
+  await page.getByRole("link", { name: "View Loan" }).click();
+  await page.waitForURL(/loan\/\?id=LP-/);
+  expect((await admin.from("loans").select("id").eq("customer_id", customerId)).data).toHaveLength(2);
+
+  // a photo already on file can be replaced (the older one is kept), not removed
+  const first = `photo-${Date.now()}.png`;
+  await admin.storage.from("documents").upload(`${customerId}/${first}`, PNG, { contentType: "image/png" });
+  await page.goto(`/customer/?id=${customerId}`);
+  await page.getByRole("tab", { name: "Docs" }).click();
+  await page.getByRole("button", { name: "Open Customer photo" }).click();
+  const sheet = page.getByRole("dialog");
+  await expect(sheet.getByRole("button", { name: "Remove" })).toHaveCount(0);
+  await chooseFile(page, () => sheet.getByRole("button", { name: "Replace" }).click(), { name: "face.png", mimeType: "image/png", buffer: PNG });
+  await expect(page.getByText("Customer photo replaced")).toBeVisible();
+  const files = await filesOf(customerId);
+  expect(files).toHaveLength(2);
+  expect(files).toContain(first);
+
+  await page.goto("/reports/");
+  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+  await expect(page.locator("main")).not.toContainText("Owner and staff only");
+  await page.goto("/activity/");
+  await expect(page.locator("main")).toContainText(name);
+  await expectClean(page, "activity, staff");
+});
+
+test("staff cannot delete anything, see Users & Roles or change a password", async ({ page }) => {
+  const name = `Staff No ${Date.now() % 100000}`;
+  const { db, customerId, ids } = await customerWithLoans(name, 1);
+  const [id] = ids;
+  expect((await pay(db, id, { date: TODAY, interest: 150000, principal: 0, other: 0 })).error).toBeNull();
+  const { data: made } = await admin.from("customers").insert({ name: `Staff View ${Date.now() % 100000}`, phone: "9000055555", area: "Nowhere" }).select("id").single();
+  await admin.storage.from("documents").upload(`${made!.id}/photo-${Date.now()}.png`, PNG, { contentType: "image/png" });
+  await signIn(page, STAFF);
+  await page.waitForURL(/home/);
+
+  // no Delete Customer, even for one without loans
   await page.goto(`/customer/?id=${made!.id}`);
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "Edit Customer" })).toBeVisible();
   await expect(page.getByRole("dialog").getByRole("button", { name: /Delete Customer/ })).toHaveCount(0);
-  await page.goto("/users/");
-  await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
-  await openLoan(page, "LP-1024");
+  await page.keyboard.press("Escape");
+  // no Remove on a photo
+  await page.getByRole("tab", { name: "Docs" }).click();
+  await page.getByRole("button", { name: "Open Customer photo" }).click();
+  await expect(page.getByRole("dialog").getByRole("link", { name: "Open" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Remove" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // no Delete Payment, no Delete Loan, no Select on the Loans list
+  await openLoan(page, id);
+  await expect(page.locator("main")).toContainText("Interest Received");
+  await expect(page.getByRole("button", { name: "Delete Payment" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete Loan" })).toHaveCount(0);
   await page.goto("/loans/");
   await expect(page.getByRole("heading", { name: "Loans" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "New" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Select" })).toHaveCount(0);
+  expect(await paymentsOf(id)).toHaveLength(1);
+  expect((await admin.from("customers").select("id").eq("id", customerId)).data).toHaveLength(1);
+
+  // no Users & Roles: not in the menus, and the page itself is locked
+  await page.goto("/more/");
+  await expect(page.getByRole("link", { name: /Settings/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Users/ })).toHaveCount(0);
+  await page.goto("/users/");
+  await expect(page.locator("main")).toContainText("Owner only");
+  await expect(page.getByRole("button", { name: /^Edit login of/ })).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText("Permissions");
+
+  // no Change Password
+  await page.goto("/settings/");
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change PIN" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Change Password/ })).toHaveCount(0);
 });
 
 test("a collector cannot edit a customer or change the photo", async ({ page }) => {
@@ -1180,14 +1272,14 @@ test("a collector cannot edit a customer or change the photo", async ({ page }) 
 });
 
 test("Change Password: the current one is checked, the new one works, the old one stops working", async ({ page }) => {
-  const STAFF = "98000 45678";
+  const USER = COLLECTOR; // staff are not offered Change Password
   const NEW = "new-password-2026";
-  const { data: who } = await admin.from("profiles").select("id").eq("phone", "9800045678").single();
+  const { data: who } = await admin.from("profiles").select("id").eq("phone", "9800023456").single();
   // start from the known password (a rerun on the same database may have changed it)
   await admin.auth.admin.updateUserById(who!.id, { password: PASSWORD });
 
   try {
-  await signIn(page, STAFF);
+  await signIn(page, USER);
   await page.waitForURL(/home/);
   await page.goto("/more/");
   await page.getByRole("link", { name: /Settings/ }).click();
@@ -1232,9 +1324,9 @@ test("Change Password: the current one is checked, the new one works, the old on
   // sign out: the old password is refused, the new one works
   await page.goto("/more/");
   await page.getByText("Logout").click();
-  await signIn(page, STAFF, PASSWORD);
+  await signIn(page, USER, PASSWORD);
   await expect(page.getByRole("alert").filter({ hasText: "Wrong mobile number or password" })).toBeVisible();
-  await signIn(page, STAFF, NEW);
+  await signIn(page, USER, NEW);
   await page.waitForURL(/home/);
   } finally {
     await admin.auth.admin.updateUserById(who!.id, { password: PASSWORD });
@@ -1354,7 +1446,7 @@ test("a collector sees only their own customers and no reports", async ({ page }
   await expect(page.locator("main")).toContainText("Ravi Kumar");
   await expect(page.locator("main")).not.toContainText("Suresh Kumar");
   await page.goto("/reports/");
-  await expect(page.locator("main")).toContainText("Owner only");
+  await expect(page.locator("main")).toContainText("Owner and staff only");
   // a loan that belongs to another collector's customer cannot be opened by its address
   await page.goto("/loan/?id=LP-1102");
   await expect(page.locator("main")).toContainText("Loan not found");

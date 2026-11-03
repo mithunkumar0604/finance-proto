@@ -380,8 +380,9 @@ export async function readUser(id: string): Promise<AppUser> {
 // ---------------------------------------------------------------------------
 // One private storage bucket. A file is "<loan id or customer id>/<tile>-<time>.<ext>". Who may read,
 // add and remove is decided by the bucket's policies in the database (whoever can see
-// the loan reads; owner and staff add; only the owner removes). Nothing has a public
-// address: a file is shown through a signed link that stops working after an hour.
+// the loan reads; owner and staff add, also a newer file over an older one; only the
+// owner removes). Nothing has a public address: a file is shown through a signed link
+// that stops working after an hour.
 
 const BUCKET = "documents";
 const LINK_SECONDS = 3600;

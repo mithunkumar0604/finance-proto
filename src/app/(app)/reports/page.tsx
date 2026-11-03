@@ -69,7 +69,7 @@ function Reports() {
       <>
         <PageHeader title="Reports" />
         <Card>
-          <EmptyState icon={Lock} title="Owner only" text={LIVE ? "Reports are visible to the owner." : "Reports are visible to the owner. Switch back to Owner to view them."} />
+          <EmptyState icon={Lock} title="Owner and staff only" text={LIVE ? "Reports are visible to the owner and staff." : "Reports are visible to the owner and staff. Switch back to Owner to view them."} />
         </Card>
       </>
     );

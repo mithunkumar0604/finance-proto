@@ -73,7 +73,7 @@ function CustomerProfile() {
           <Card className="p-5">
             <div className="flex items-center gap-4">
               {LIVE ? (
-                <CustomerPhoto key={`${c.id}-${faceRev}`} customerId={c.id} name={c.name} canAdd={perm.role !== "collector"} canReplace={perm.role === "owner"} onChanged={() => setTilesRev((n) => n + 1)} />
+                <CustomerPhoto key={`${c.id}-${faceRev}`} customerId={c.id} name={c.name} canAdd={perm.role !== "collector"} canReplace={perm.role !== "collector"} canRemove={perm.role === "owner"} onChanged={() => setTilesRev((n) => n + 1)} />
               ) : (
                 <Avatar name={c.name} size="xl" />
               )}
@@ -198,7 +198,7 @@ function CustomerProfile() {
                     <p className="text-[15px]">{c.idRef ?? "No ID reference saved"}</p>
                   </div>
                   {LIVE ? (
-                    // owner and staff add photos, only the owner removes them (the storage rules enforce both)
+                    // owner and staff add and replace photos, only the owner removes them (the storage rules enforce both)
                     <FileTiles key={`${c.id}-${tilesRev}`} folder={c.id} slots={CUSTOMER_SLOTS} canAdd={perm.role !== "collector"} canRemove={perm.role === "owner"} onChanged={() => setFaceRev((n) => n + 1)} />
                   ) : (
                     <div className="mt-4 grid grid-cols-3 gap-2">

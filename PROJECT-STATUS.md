@@ -171,8 +171,9 @@ static export; project `finance-proto`, connected to the `production` branch).
 - **Security photos.** The tiles on a loan's security and the photo boxes in New Loan
   save to the private `documents` bucket as `<loan id>/<tile>-<time>.<ext>`. JPG, PNG,
   WebP and PDF; photos are made smaller in the browser before sending; 5 MB limit.
-  Shown only through signed links that last an hour. Owner and staff add, only the
-  owner replaces or removes, a collector only views (enforced by the storage rules).
+  Shown only through signed links that last an hour. Owner and staff add and replace
+  (the older file is kept), only the owner removes, a collector only views (enforced by
+  the storage rules).
 - **Change Password.** Current, new (8 or more characters), confirm. This device stays
   signed in; other devices are signed out.
 - **Tests:** 193 unit, 98 database, 26 browser, all passing. On the live site a
@@ -250,7 +251,7 @@ The design is unchanged. Additions, all small:
 - New Loan no longer asks "Collection Frequency" again after Weekly / Monthly / 15 Days / 30 Days was picked: it says "Collected every week" with a Change link. Vehicle, Jewel and Custom are asked "How often will you collect?";
 - **Receive Payment**: when more than one period is pending, a "Pending Interest"
   list with a tick box per period and a total; a "− Waive interest" choice under
-  Adjustment (owner only); the Notes box becomes "Reason for waiving" when waiving;
+  Adjustment (owner and staff); the Notes box becomes "Reason for waiving" when waiving;
 - the loan page lists every missed period as "Overdue Collection";
 - in the live app the demo-only items are hidden (pre-filled login, PIN hint, "view
   as" role switcher, "Reset demo data", "demo" captions).

@@ -36,7 +36,7 @@ All amounts are whole paise. Nothing is stored or added as a decimal number.
   It stays open, with no further interest added, until the pending interest is
   collected or waived. Full Settlement does both in one step: collect what is paid,
   waive the rest with a reason.
-- Waiving: the owner only. Full Settlement → "− Waive", or More options → Adjustment →
+- Waiving: the owner or staff. Full Settlement → "− Waive", or More options → Adjustment →
   "− Waive interest". The reason goes in Notes and is required.
 
 ## One-time loans: "Custom" (12 October 2026)
@@ -114,4 +114,4 @@ in full on a fixed date, not repeating.
 - "Manual" interest: should the owner be able to type any interest amount each time?
   Today interest collected for a period cannot be more than that period's interest;
   extra goes under Adjustment.
-- Who may move a collection date, and how far? Today: owner and collectors, up to a year.
+- Who may move a collection date, and how far? Today: owner, staff and collectors, up to a year.

@@ -29,10 +29,14 @@ export interface Permissions {
   seeTotals: boolean;
   seeReports: boolean;
   receive: boolean;
-  /** Write off pending interest (owner only; the database enforces it). */
+  /** Write off pending interest (owner and staff; the database enforces it). */
   waive: boolean;
   createLoan: boolean;
   addCustomer: boolean;
+  /** The Users & Roles page (owner only). Changing logins is for admins; the database enforces it. */
+  seeUsers: boolean;
+  /** Change one's own password in Settings. Hidden for staff (an admin resets theirs). */
+  changePassword: boolean;
   /** Collector sees only their assigned customers. */
   customerScope: (c: Customer) => boolean;
 }
@@ -50,10 +54,11 @@ export function permissions(s: AppState): Permissions {
   // LIVE: the database already returns only this collector's customers; this keeps the screens in step.
   const collectorId = LIVE ? s.session.userId : COLLECTOR_ID;
   if (role === "collector")
-    return { role, seeTotals: false, seeReports: false, receive: true, waive: false, createLoan: false, addCustomer: false, customerScope: (c) => c.collectorId === collectorId };
-  if (role === "staff")
-    return { role, seeTotals: false, seeReports: false, receive: false, waive: false, createLoan: false, addCustomer: true, customerScope: () => true };
-  return { role, seeTotals: true, seeReports: true, receive: true, waive: true, createLoan: true, addCustomer: true, customerScope: () => true };
+    return { role, seeTotals: false, seeReports: false, receive: true, waive: false, createLoan: false, addCustomer: false, seeUsers: false, changePassword: true, customerScope: (c) => c.collectorId === collectorId };
+  // Staff work like the owner, except: no deleting (checked by role where it is offered),
+  // no Users & Roles, no password change.
+  const owner = role === "owner";
+  return { role, seeTotals: true, seeReports: true, receive: true, waive: true, createLoan: true, addCustomer: true, seeUsers: owner, changePassword: owner, customerScope: () => true };
 }
 
 /** Name and initials for the profile badge. The demo always shows the owner, as designed. */

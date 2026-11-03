@@ -179,7 +179,7 @@ async function enter(who: remote.SignedIn) {
   const from = defaultHistoryFrom();
   // Every period that has started since the app was last opened becomes a pending collection.
   await remote.accrueAll();
-  const book = await remote.loadBook(from, who.profile.role === "owner");
+  const book = await remote.loadBook(from, who.profile.role === "owner" || who.profile.role === "staff");
   set((s) => ({
     ...s,
     ...book,
@@ -213,7 +213,7 @@ async function reloadLoans(loanIds: string[]) {
 }
 
 function refreshActivity() {
-  if (getState().session.viewAs !== "owner") return;
+  if (getState().session.viewAs === "collector") return;
   remote
     .loadActivity()
     .then((activity) => set((s) => ({ ...s, activity })))
@@ -509,12 +509,12 @@ export const actions = {
     }));
   },
 
-  /** Owner: write off pending interest without receiving money. A reason is required. */
+  /** Owner or staff: write off pending interest without receiving money. A reason is required. */
   async waiveInterest(loanId: string, waive: InterestPick[], reason: string): Promise<void> {
     const s0 = getState();
     const loan = s0.loans.find((l) => l.id === loanId);
     if (!loan) throw new AppError("NOT_FOUND", "This loan was not found.");
-    if (s0.session.viewAs !== "owner") throw new AppError("NOT_ALLOWED", "Only the owner can waive interest.");
+    if (s0.session.viewAs === "collector") throw new AppError("NOT_ALLOWED", "Only the owner or staff can waive interest.");
     const today = todayISO();
     // the engine checks it (reason given, nothing waived beyond what is pending) ...
     const result = applyWaiver(loan, s0.dues.filter((d) => d.loanId === loanId), { waive, reason, date: today }, today);
