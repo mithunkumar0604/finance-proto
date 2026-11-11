@@ -14,11 +14,11 @@ import { SecurityDetails } from "@/components/security/security-details";
 import { AnimatedMoney } from "@/components/ui/animated-money";
 import { Avatar, Card, Chip, EmptyState, Row, SectionHeader, Skeleton, StatusChip } from "@/components/ui/bits";
 import { Button } from "@/components/ui/button";
-import { DecimalInput, Field, Input, OptionGrid } from "@/components/ui/form";
+import { DecimalInput, Field, Input, MoneyInput, OptionGrid } from "@/components/ui/form";
 import { Sheet } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/toast";
 import { DEFAULT_DELETE_REASON, deletablePayment, deleteReason } from "@/lib/delete-payment";
-import { dueRemaining, loanSchedule } from "@/lib/finance/engine";
+import { dueRemaining, loanSchedule, termsProblem } from "@/lib/finance/engine";
 import { dLong, dRelative, dShort, FREQ_LABEL, interestLabel, LOAN_TYPE_LABEL, money, todayISO } from "@/lib/format";
 import { interestProblem, loanNoProblem, referrers, switchInterestStyle } from "@/lib/loan-form";
 import { currentUser, loanView, permissions } from "@/lib/selectors";
@@ -65,6 +65,8 @@ function LoanDetails() {
   const repaid = loan.amount - loan.principalLeft;
   const active = loan.status === "active";
   const schedule = loanSchedule(loan, s.dues.filter((d) => d.loanId === loan.id && !d.cancelled));
+  // terms that cannot make a collection (interest ₹0, no principal): said here, fixed with Edit Loan
+  const termsWrong = termsProblem(loan);
   // LIVE, owner only: the payment entered last can be deleted (the database enforces both).
   const deletableId = LIVE && perm.role === "owner" ? deletablePayment(v.payments)?.id : undefined;
   // LIVE, admin only: the whole loan can be deleted (the database checks the admin mark too).
@@ -126,6 +128,12 @@ function LoanDetails() {
                 {v.nextStatus && <StatusChip status={v.nextStatus} />}
               </div>
             </Card>
+          )}
+
+          {termsWrong && (
+            <p role="status" className="rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+              {termsWrong} No more collections will be added. Tap Edit Loan to set it.
+            </p>
           )}
 
           {/* Actions */}
@@ -322,7 +330,12 @@ function EditLoanSheet({ loan, onClose }: { loan: Loan; onClose: () => void }) {
           />
         </Field>
         <Field label={interest.style === "percent" ? "Interest Value (%)" : "Interest Amount (₹)"}>
-          <DecimalInput key={interest.style} value={interest.value} onChange={(value) => setInterest({ ...interest, value })} suffix={interest.style === "percent" ? "%" : "₹"} />
+          {/* an amount is typed in rupees and kept in paise, as in New Loan (a plain number box saved ₹100 as ₹1) */}
+          {interest.style === "percent" ? (
+            <DecimalInput key="pct" value={interest.value} onChange={(value) => setInterest({ ...interest, value })} suffix="%" />
+          ) : (
+            <MoneyInput value={interest.value || ""} onChange={(v) => setInterest({ ...interest, value: v || 0 })} />
+          )}
         </Field>
         <Field label="Interest Calculation" group>
           <OptionGrid

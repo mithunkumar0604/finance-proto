@@ -544,7 +544,7 @@ test("New Loan: Weekly, then tapping Percentage, does not break the screen", asy
   await page.getByRole("button", { name: "Edit Loan" }).click();
   const sheet = page.getByRole("dialog");
   await sheet.getByRole("button", { name: /^Fixed/ }).first().click();
-  await expect(sheet.locator("input[inputmode=decimal]")).toHaveValue("");
+  await expect(sheet.locator("input[inputmode=numeric]")).toHaveValue("");
   await sheet.getByRole("button", { name: "Save Changes" }).click();
   await expect(sheet.getByRole("alert")).toContainText("Enter the interest");
   await sheet.getByRole("button", { name: /^Percentage/ }).click();
@@ -796,6 +796,52 @@ test("Custom is a one-time loan: the owner picks the return date, it is collecte
   await page.getByRole("button", { name: "Done" }).click();
   expect(await loanRow(id)).toMatchObject({ principal_left: 0, status: "closed" });
   expect((await dues()).length).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("a loan with ₹0 interest and nothing per collection: every screen opens, the loan page says so, and Edit Loan fixes it", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  const db = createClient(API, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
+  expect((await db.auth.signInWithPassword({ email: `${OWNER.replace(/\D/g, "")}@ledgerpro.invalid`, password: PASSWORD })).error).toBeNull();
+  const { data: c } = await admin.from("customers").insert({ name: `Zero Terms ${Date.now() % 100000}`, phone: "9000099999", area: "Nowhere" }).select("id").single();
+  const res = await giveLoan(db, {
+    customerId: c!.id,
+    type: "15day",
+    amount: 500000,
+    startDate: TODAY,
+    interest: { style: "percent", value: 2, method: "manual" },
+    frequency: "15days",
+    principalPerDue: 0,
+  });
+  expect(res.error).toBeNull();
+  const id = res.data.loan_id as string;
+  // what live loan LP-1020 became after Edit Loan -> Custom -> ₹0
+  await admin.from("loans").update({ interest_style: "custom", interest_value: 0 }).eq("id", id);
+
+  await signInOwner(page);
+  await openLoan(page, id);
+  await expect(page.getByRole("status").filter({ hasText: "Interest per collection is ₹0" })).toContainText("Tap Edit Loan to set it.");
+  // the collection made when it was given (₹100) is still shown
+  await expect(page.locator("main")).toContainText("₹100");
+  await expectClean(page, "loan with ₹0 terms");
+  for (const path of ["/loans/", "/home/", "/collections/", "/collections/?tab=upcoming", "/reports/?range=month&show=all", "/reports/?range=nextMonth&show=all"]) {
+    await page.goto(path);
+    await expect(page.locator("main")).toBeVisible();
+    await expectClean(page, path);
+  }
+  expect(errors).toEqual([]);
+
+  // Edit Loan: Custom ₹100 is saved as ₹100 (in paise), and the notice goes
+  await openLoan(page, id);
+  await page.getByRole("button", { name: "Edit Loan" }).click();
+  const sheet = page.getByRole("dialog");
+  await sheet.locator("input[inputmode=numeric]").fill("100");
+  await sheet.getByRole("button", { name: "Save Changes" }).click();
+  await expect(sheet).toBeHidden();
+  expect(await loanRow(id)).toMatchObject({ interest_style: "custom", interest_value: 10000 });
+  await expect(page.getByRole("status").filter({ hasText: "Interest per collection" })).toHaveCount(0);
+  await expect(page.locator("main")).toContainText("Custom · ₹100");
   expect(errors).toEqual([]);
 });
 

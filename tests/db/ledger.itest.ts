@@ -1083,3 +1083,53 @@ describe("more points from the security review", () => {
     }
   });
 });
+
+describe("a loan whose terms ask for nothing each time (interest ₹0, no principal)", () => {
+  // Live loan LP-1020: Edit Loan -> Custom -> ₹0 was saved. Accruing must never fail or loop
+  // because of one such loan, or no loan would get its collections.
+  const fifteen = (customerId: string, start: string) => ({
+    customerId,
+    type: "15day" as const,
+    amount: rupees(5000),
+    startDate: start,
+    interest: { style: "percent" as const, value: 2, method: "manual" as const },
+    frequency: "15days" as const,
+    principalPerDue: 0,
+  });
+
+  it("nothing more is added to it, every other loan still accrues, and the app agrees", async () => {
+    // given 40 days ago: collections at 15, 30 and 45 days (the last still coming) are made when it is entered
+    const start = shift(TODAY, -40);
+    const badRes = await giveLoan(owner.db, fifteen(await addCustomer(owner.db, "Interest Zero"), start));
+    expect(badRes.error).toBeNull();
+    const bad = badRes.data.loan_id as string;
+    const { data: row } = await admin.from("loans").select("version").eq("id", bad).single();
+    const edit = await owner.db.rpc("update_loan", {
+      p_loan_id: bad,
+      p_version: row!.version,
+      p_patch: { interest_style: "custom", interest_value: 0, interest_method: "manual" },
+    });
+    expect(edit.error).toBeNull();
+    const before = await readLoan(owner.db, bad);
+    expect(before.dues.map((d) => d.dueDate)).toEqual([shift(start, 15), shift(start, 30), shift(start, 45)]);
+
+    // everything is paid ahead: a loan with interest would get its next collection now; this one must not
+    for (const d of before.dues) {
+      const r = await admin.from("dues").update({ paid: d.interestAmount, interest_paid: d.interestAmount }).eq("id", d.id);
+      expect(r.error).toBeNull();
+    }
+    const goodRes = await giveLoan(owner.db, fifteen(await addCustomer(owner.db, "Still Charged"), start));
+    expect(goodRes.error).toBeNull();
+    expect((await owner.db.rpc("accrue_all")).error).toBeNull();
+    const again = await admin.rpc("accrue_dues", { p_loan_id: bad });
+    expect(again.error).toBeNull();
+    expect(again.data).toBe(0);
+    const after = await readLoan(owner.db, bad);
+    expect(after.dues).toHaveLength(3);
+    expect((await readLoan(owner.db, goodRes.data.loan_id)).dues.map((d) => d.dueDate)).toEqual([shift(start, 15), shift(start, 30), shift(start, 45)]);
+
+    const { accrueDues, loanSchedule } = await import("../../src/lib/finance/engine");
+    expect(accrueDues(after.loan, after.dues, TODAY, (n) => `x${n}`)).toEqual(after.dues);
+    expect(loanSchedule(after.loan, after.dues)).toBeNull();
+  });
+});

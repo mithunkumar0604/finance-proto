@@ -461,7 +461,8 @@ export function applyWaiver(loan: Loan, loanDues: Due[], input: WaiverInput, tod
  * paid on time: they change if the customer pays late, returns principal early or closes.
  */
 export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit = 400): Due[] {
-  if (loan.status !== "active" || loan.frequency === "once") return [];
+  // terms that cannot make a collection: nothing can be projected (the loan page says why)
+  if (loan.status !== "active" || loan.frequency === "once" || termsProblem(loan)) return [];
   const open = openDues(loanDues);
   if (!open.length) return [];
   const out: Due[] = [];
@@ -475,6 +476,24 @@ export function projectDues(loan: Loan, loanDues: Due[], until: ISODate, limit =
     date = nextDueDate(date, loan.frequency, 1, loan.startDate);
   }
   return out;
+}
+
+/**
+ * Why a running loan's terms cannot make its next collection, in words for the user; null
+ * when they can. Interest ₹0 with no principal per collection asks for nothing, so no
+ * collection is added (accrueDues and the database's accrue_dues stop) and none is projected.
+ * Screens show this instead of breaking.
+ */
+export function termsProblem(loan: Loan): string | null {
+  if (loan.status !== "active" || loan.frequency === "once" || loan.principalLeft <= 0) return null;
+  try {
+    if (periodInterest(loan) + Math.min(loan.principalPerDue, loan.principalLeft) === 0) return "Interest per collection is ₹0.";
+    buildDue(loan, loan.startDate, "check");
+    return null;
+  } catch (e) {
+    if (e instanceof FinanceError) return e.message;
+    throw e;
+  }
 }
 
 export interface ScheduleRow {
